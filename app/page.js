@@ -116,6 +116,7 @@ export default function App() {
       case 'campaign-create': return <CampaignCreate user={user} navigate={navigate} />;
       case 'campaign-detail': return <CampaignDetail campaignId={viewParams.id} user={user} navigate={navigate} />;
       case 'team': return <TeamView user={user} />;
+      case 'audit-log': return <AuditLogView user={user} />;
       default: return <DashboardView user={user} navigate={navigate} />;
     }
   };
