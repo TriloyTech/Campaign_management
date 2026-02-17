@@ -8,9 +8,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { apiFetch, formatBDT, getStatusColor, getStatusLabel } from '@/lib/api';
 import { toast } from 'sonner';
-import { ArrowLeft, Calendar, ExternalLink, CheckCircle, Clock, AlertCircle, Play, Eye } from 'lucide-react';
+import { ArrowLeft, Calendar, ExternalLink, CheckCircle, Clock, Play, Eye, Link2 } from 'lucide-react';
 
-const STATUS_FLOW = ['pending', 'in_progress', 'review', 'delivered'];
+const STATUS_OPTIONS = [
+  { value: 'pending', label: 'Pending', icon: Clock, color: 'text-gray-400' },
+  { value: 'in_progress', label: 'In Progress', icon: Play, color: 'text-amber-500' },
+  { value: 'review', label: 'Review', icon: Eye, color: 'text-blue-500' },
+  { value: 'delivered', label: 'Delivered', icon: CheckCircle, color: 'text-emerald-500' },
+];
 
 export default function CampaignDetail({ campaignId, user, navigate }) {
   const [campaign, setCampaign] = useState(null);
@@ -33,40 +38,30 @@ export default function CampaignDetail({ campaignId, user, navigate }) {
   };
 
   const updateStatus = async (deliverable, newStatus) => {
-    if (newStatus === 'delivered' && !deliverable.proofUrl) {
-      setProofDialog(deliverable);
-      setProofUrl('');
-      return;
-    }
     try {
-      await apiFetch('PUT', `deliverables/${deliverable.id}`, { status: newStatus });
+      const updateData = { status: newStatus };
+      if (deliverable.proofUrl) updateData.proofUrl = deliverable.proofUrl;
+      await apiFetch('PUT', `deliverables/${deliverable.id}`, updateData);
       toast.success(`Updated to ${getStatusLabel(newStatus)}`);
       loadCampaign();
     } catch (err) { toast.error(err.message); }
   };
 
   const submitProof = async () => {
-    if (!proofUrl) { toast.error('Please enter a proof URL'); return; }
     try {
-      await apiFetch('PUT', `deliverables/${proofDialog.id}`, { status: 'delivered', proofUrl });
-      toast.success('Marked as delivered!');
+      await apiFetch('PUT', `deliverables/${proofDialog.id}`, { proofUrl });
+      toast.success('Proof link saved!');
       setProofDialog(null);
+      setProofUrl('');
       loadCampaign();
     } catch (err) { toast.error(err.message); }
   };
 
-  const getNextStatus = (current) => {
-    const idx = STATUS_FLOW.indexOf(current);
-    return idx < STATUS_FLOW.length - 1 ? STATUS_FLOW[idx + 1] : null;
-  };
-
   const getStatusIcon = (status) => {
-    switch (status) {
-      case 'delivered': return <CheckCircle size={16} className="text-emerald-500" />;
-      case 'review': return <Eye size={16} className="text-blue-500" />;
-      case 'in_progress': return <Play size={16} className="text-amber-500" />;
-      default: return <Clock size={16} className="text-gray-400" />;
-    }
+    const opt = STATUS_OPTIONS.find(s => s.value === status);
+    if (!opt) return <Clock size={16} className="text-gray-400" />;
+    const Icon = opt.icon;
+    return <Icon size={16} className={opt.color} />;
   };
 
   if (loading) return <div className="space-y-4">{[1,2,3].map(i => <div key={i} className="h-32 bg-muted animate-pulse rounded-lg" />)}</div>;
@@ -89,7 +84,7 @@ export default function CampaignDetail({ campaignId, user, navigate }) {
           <ArrowLeft size={20} />
         </button>
         <div className="flex-1">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <h1 className="text-2xl font-bold">{campaign.name}</h1>
             <Badge className={getStatusColor(campaign.status)}>{getStatusLabel(campaign.status)}</Badge>
             <Badge variant="outline" className="capitalize">{campaign.type}</Badge>
@@ -143,7 +138,6 @@ export default function CampaignDetail({ campaignId, user, navigate }) {
         </Card>
       </div>
 
-      {/* Date range */}
       {(campaign.startDate || campaign.endDate) && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Calendar size={16} />
@@ -197,29 +191,50 @@ export default function CampaignDetail({ campaignId, user, navigate }) {
                 <Badge variant="secondary" className="text-xs">{items.filter(d => d.status === 'delivered').length}/{items.length} done</Badge>
               </h4>
               <div className="space-y-2">
-                {items.map(d => {
-                  const next = getNextStatus(d.status);
-                  return (
-                    <div key={d.id} className="flex items-center gap-3 p-3 border rounded-lg hover:bg-muted/30 transition-colors">
-                      {getStatusIcon(d.status)}
-                      <div className="flex-1 min-w-0">
-                        <span className="text-sm">{d.serviceName} #{d.unitIndex}</span>
-                        {d.proofUrl && (
-                          <a href={d.proofUrl} target="_blank" rel="noopener noreferrer" className="ml-2 inline-flex items-center gap-1 text-xs text-blue-600 hover:underline">
-                            <ExternalLink size={12} /> Proof
-                          </a>
-                        )}
-                      </div>
-                      <Badge className={`text-xs ${getStatusColor(d.status)}`}>{getStatusLabel(d.status)}</Badge>
-                      {isAdmin && <span className="text-sm text-muted-foreground">{formatBDT(d.rate)}</span>}
-                      {next && (
-                        <Button size="sm" variant="outline" className="text-xs h-7" onClick={() => updateStatus(d, next)}>
-                          {getStatusLabel(next)}
-                        </Button>
+                {items.map(d => (
+                  <div key={d.id} className="flex items-center gap-3 p-3 border rounded-lg hover:bg-muted/30 transition-colors">
+                    {getStatusIcon(d.status)}
+                    <div className="flex-1 min-w-0">
+                      <span className="text-sm font-medium">{d.serviceName} #{d.unitIndex}</span>
+                      {d.proofUrl && (
+                        <a href={d.proofUrl} target="_blank" rel="noopener noreferrer" className="ml-2 inline-flex items-center gap-1 text-xs text-blue-600 hover:underline">
+                          <ExternalLink size={12} /> Proof
+                        </a>
                       )}
                     </div>
-                  );
-                })}
+
+                    {/* Proof link button */}
+                    <button
+                      onClick={() => { setProofDialog(d); setProofUrl(d.proofUrl || ''); }}
+                      className={`p-1.5 rounded hover:bg-muted transition-colors ${d.proofUrl ? 'text-blue-600' : 'text-muted-foreground'}`}
+                      title={d.proofUrl ? 'Edit proof link' : 'Add proof link'}
+                    >
+                      <Link2 size={14} />
+                    </button>
+
+                    {isAdmin && <span className="text-sm text-muted-foreground">{formatBDT(d.rate)}</span>}
+
+                    {/* Status dropdown */}
+                    <Select value={d.status} onValueChange={(newStatus) => updateStatus(d, newStatus)}>
+                      <SelectTrigger className="w-36 h-8 text-xs">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {STATUS_OPTIONS.map(opt => {
+                          const Icon = opt.icon;
+                          return (
+                            <SelectItem key={opt.value} value={opt.value}>
+                              <div className="flex items-center gap-2">
+                                <Icon size={13} className={opt.color} />
+                                <span>{opt.label}</span>
+                              </div>
+                            </SelectItem>
+                          );
+                        })}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                ))}
               </div>
             </div>
           ))}
@@ -227,21 +242,25 @@ export default function CampaignDetail({ campaignId, user, navigate }) {
       </Card>
 
       {/* Proof URL Dialog */}
-      <Dialog open={!!proofDialog} onOpenChange={() => setProofDialog(null)}>
+      <Dialog open={!!proofDialog} onOpenChange={() => { setProofDialog(null); setProofUrl(''); }}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Submit Proof of Delivery</DialogTitle>
+            <DialogTitle>Proof / Link</DialogTitle>
           </DialogHeader>
           <div className="space-y-4 mt-4">
             <p className="text-sm text-muted-foreground">
-              To mark <strong>{proofDialog?.serviceName} #{proofDialog?.unitIndex}</strong> as delivered, please provide the proof URL (e.g., Facebook/Instagram post link).
+              Add or update proof link for <strong>{proofDialog?.serviceName} #{proofDialog?.unitIndex}</strong>
+              <br />
+              <span className="text-xs">(e.g., Facebook/Instagram post link, Google Drive link, etc.)</span>
             </p>
             <Input
               value={proofUrl}
               onChange={e => setProofUrl(e.target.value)}
-              placeholder="https://facebook.com/your-post-link"
+              placeholder="https://facebook.com/your-post-link (optional)"
             />
-            <Button onClick={submitProof} className="w-full">Mark as Delivered</Button>
+            <Button onClick={submitProof} className="w-full">
+              {proofUrl ? 'Save Proof Link' : 'Clear Proof Link'}
+            </Button>
           </div>
         </DialogContent>
       </Dialog>

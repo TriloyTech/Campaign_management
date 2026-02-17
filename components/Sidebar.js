@@ -1,6 +1,5 @@
 'use client';
-import { LayoutDashboard, Users, Megaphone, Package, UserPlus, ChevronLeft, ChevronRight, LogOut, Briefcase } from 'lucide-react';
-import { Button } from '@/components/ui/button';
+import { LayoutDashboard, Users, Megaphone, Package, UserPlus, ChevronLeft, ChevronRight, LogOut, Briefcase, ScrollText } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 
 export default function Sidebar({ user, collapsed, toggle, navigate, currentView, onLogout }) {
@@ -12,11 +11,14 @@ export default function Sidebar({ user, collapsed, toggle, navigate, currentView
     { id: 'campaigns', label: 'Campaigns', icon: Megaphone },
     { id: 'services', label: 'Services', icon: Package },
     { id: 'team', label: 'Team', icon: UserPlus },
+    { id: 'audit-log', label: 'Audit Log', icon: ScrollText },
   ];
 
   const teamNav = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { id: 'clients', label: 'Clients', icon: Users },
     { id: 'campaigns', label: 'My Campaigns', icon: Briefcase },
+    { id: 'services', label: 'Services', icon: Package },
   ];
 
   const navItems = isAdmin ? adminNav : teamNav;
@@ -67,7 +69,7 @@ export default function Sidebar({ user, collapsed, toggle, navigate, currentView
           {!collapsed && (
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium truncate">{user?.name}</p>
-              <p className="text-xs text-slate-400 truncate capitalize">{user?.role?.replace('_', ' ')}</p>
+              <p className="text-xs text-slate-400 truncate capitalize">{user?.role === 'admin' ? 'Admin' : 'Custom Access'}</p>
             </div>
           )}
           {!collapsed && (
