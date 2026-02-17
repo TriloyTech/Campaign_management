@@ -262,7 +262,6 @@ async function handleCampaigns(request, id, method) {
   }
 
   if (method === 'PUT' && id) {
-    if (user.role !== 'admin') return json({ error: 'Admin only' }, 403);
     const data = await request.json();
     const updateFields = {};
     if (data.name !== undefined) updateFields.name = data.name;
@@ -273,14 +272,17 @@ async function handleCampaigns(request, id, method) {
     updateFields.updatedAt = new Date();
     await db.collection('campaigns').updateOne({ id, organizationId: user.organizationId }, { $set: updateFields });
     const campaign = await db.collection('campaigns').findOne({ id });
+    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: user.organizationId, userId: user.id, userName: user.name, action: 'modified', entityType: 'campaign', entityId: id, details: `Modified campaign "${campaign.name}"`, createdAt: new Date() });
     return json({ campaign });
   }
 
   if (method === 'DELETE' && id) {
     if (user.role !== 'admin') return json({ error: 'Admin only' }, 403);
+    const delCampaign = await db.collection('campaigns').findOne({ id });
     await db.collection('campaigns').deleteOne({ id, organizationId: user.organizationId });
     await db.collection('line_items').deleteMany({ campaignId: id });
     await db.collection('deliverables').deleteMany({ campaignId: id });
+    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: user.organizationId, userId: user.id, userName: user.name, action: 'deleted', entityType: 'campaign', entityId: id, details: `Deleted campaign "${delCampaign?.name || id}"`, createdAt: new Date() });
     return json({ success: true });
   }
   return json({ error: 'Not found' }, 404);
