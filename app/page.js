@@ -10,6 +10,7 @@ import CampaignsView from '@/components/CampaignsView';
 import CampaignCreate from '@/components/CampaignCreate';
 import CampaignDetail from '@/components/CampaignDetail';
 import TeamView from '@/components/TeamView';
+import AuditLogView from '@/components/AuditLogView';
 import { Loader2 } from 'lucide-react';
 
 export default function App() {
