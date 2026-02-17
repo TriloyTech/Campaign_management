@@ -402,12 +402,36 @@ async function handleTeam(request, action, method) {
     if (!data.email || !data.name || !data.password) return json({ error: 'Email, name, and password required' }, 400);
     const existing = await db.collection('users').findOne({ email: data.email });
     if (existing) return json({ error: 'Email already exists' }, 400);
+    const memberRole = data.role === 'admin' ? 'admin' : 'team_member';
     const member = {
       id: uuidv4(), email: data.email, password: hashPassword(data.password), name: data.name,
-      role: 'team_member', organizationId: user.organizationId, createdAt: new Date()
+      role: memberRole, designation: data.designation || '', department: data.department || '',
+      organizationId: user.organizationId, createdAt: new Date()
     };
     await db.collection('users').insertOne(member);
-    return json({ member: { id: member.id, email: member.email, name: member.name, role: member.role } }, 201);
+    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: user.organizationId, userId: user.id, userName: user.name, action: 'created', entityType: 'team_member', entityId: member.id, details: `Added team member "${member.name}" as ${memberRole === 'admin' ? 'Admin' : 'Custom Access'}`, createdAt: new Date() });
+    return json({ member: { id: member.id, email: member.email, name: member.name, role: member.role, designation: member.designation, department: member.department } }, 201);
+  }
+  return json({ error: 'Not found' }, 404);
+}
+
+// ============ ACTIVITY LOGS ============
+async function handleActivityLogs(request, method) {
+  const user = getUser(request);
+  if (!user) return json({ error: 'Unauthorized' }, 401);
+  if (user.role !== 'admin') return json({ error: 'Admin only' }, 403);
+  const db = await getDb();
+
+  if (method === 'GET') {
+    const url = new URL(request.url);
+    const entityType = url.searchParams.get('entityType');
+    const action = url.searchParams.get('action');
+    const limit = parseInt(url.searchParams.get('limit')) || 100;
+    const filter = { organizationId: user.organizationId };
+    if (entityType && entityType !== 'all') filter.entityType = entityType;
+    if (action && action !== 'all') filter.action = action;
+    const logs = await db.collection('activity_logs').find(filter).sort({ createdAt: -1 }).limit(limit).toArray();
+    return json({ logs });
   }
   return json({ error: 'Not found' }, 404);
 }
