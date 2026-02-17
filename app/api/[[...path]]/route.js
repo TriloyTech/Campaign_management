@@ -171,10 +171,10 @@ async function handleServices(request, id, method) {
       defaultRate: Number(data.defaultRate) || 0, description: data.description || '', createdAt: new Date()
     };
     await db.collection('service_catalog').insertOne(service);
+    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: user.organizationId, userId: user.id, userName: user.name, action: 'created', entityType: 'service', entityId: service.id, details: `Created service "${service.name}" at ${service.defaultRate} BDT`, createdAt: new Date() });
     return json({ service }, 201);
   }
   if (method === 'PUT' && id) {
-    if (user.role !== 'admin') return json({ error: 'Admin only' }, 403);
     const data = await request.json();
     const updateFields = {};
     if (data.name !== undefined) updateFields.name = data.name;
@@ -183,6 +183,7 @@ async function handleServices(request, id, method) {
     updateFields.updatedAt = new Date();
     await db.collection('service_catalog').updateOne({ id, organizationId: user.organizationId }, { $set: updateFields });
     const service = await db.collection('service_catalog').findOne({ id });
+    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: user.organizationId, userId: user.id, userName: user.name, action: 'modified', entityType: 'service', entityId: id, details: `Modified service "${service.name}"`, createdAt: new Date() });
     return json({ service });
   }
   if (method === 'DELETE' && id) {
