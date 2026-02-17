@@ -129,7 +129,6 @@ async function handleClients(request, id, method) {
     return json({ client }, 201);
   }
   if (method === 'PUT' && id) {
-    if (user.role !== 'admin') return json({ error: 'Admin only' }, 403);
     const data = await request.json();
     const updateFields = {};
     if (data.name !== undefined) updateFields.name = data.name;
@@ -141,6 +140,7 @@ async function handleClients(request, id, method) {
     updateFields.updatedAt = new Date();
     await db.collection('clients').updateOne({ id, organizationId: user.organizationId }, { $set: updateFields });
     const client = await db.collection('clients').findOne({ id });
+    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: user.organizationId, userId: user.id, userName: user.name, action: 'modified', entityType: 'client', entityId: id, details: `Modified client "${client.name}"`, createdAt: new Date() });
     return json({ client });
   }
   if (method === 'DELETE' && id) {
