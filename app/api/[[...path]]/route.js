@@ -145,7 +145,9 @@ async function handleClients(request, id, method) {
   }
   if (method === 'DELETE' && id) {
     if (user.role !== 'admin') return json({ error: 'Admin only' }, 403);
+    const delClient = await db.collection('clients').findOne({ id });
     await db.collection('clients').deleteOne({ id, organizationId: user.organizationId });
+    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: user.organizationId, userId: user.id, userName: user.name, action: 'deleted', entityType: 'client', entityId: id, details: `Deleted client "${delClient?.name || id}"`, createdAt: new Date() });
     return json({ success: true });
   }
   return json({ error: 'Not found' }, 404);
