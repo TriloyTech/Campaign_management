@@ -301,9 +301,7 @@ async function handleDeliverables(request, id, method) {
     const data = await request.json();
     const deliverable = await db.collection('deliverables').findOne({ id });
     if (!deliverable) return json({ error: 'Deliverable not found' }, 404);
-    if (data.status === 'delivered' && !data.proofUrl && !deliverable.proofUrl) {
-      return json({ error: 'Proof URL required to mark as delivered' }, 400);
-    }
+    // Proof URL is optional for delivered status
     const updateData = { updatedAt: new Date() };
     if (data.status !== undefined) updateData.status = data.status;
     if (data.proofUrl !== undefined) updateData.proofUrl = data.proofUrl;
