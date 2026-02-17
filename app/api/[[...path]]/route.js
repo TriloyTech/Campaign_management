@@ -188,7 +188,9 @@ async function handleServices(request, id, method) {
   }
   if (method === 'DELETE' && id) {
     if (user.role !== 'admin') return json({ error: 'Admin only' }, 403);
+    const delSvc = await db.collection('service_catalog').findOne({ id });
     await db.collection('service_catalog').deleteOne({ id, organizationId: user.organizationId });
+    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: user.organizationId, userId: user.id, userName: user.name, action: 'deleted', entityType: 'service', entityId: id, details: `Deleted service "${delSvc?.name || id}"`, createdAt: new Date() });
     return json({ success: true });
   }
   return json({ error: 'Not found' }, 404);
