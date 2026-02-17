@@ -101,3 +101,148 @@
 #====================================================================================================
 # Testing Data - Main Agent and testing sub agent both should log testing data below this section
 #====================================================================================================
+
+user_problem_statement: "Digital Marketing Campaign Tracker with Unit-Based Revenue Tracking - MongoDB, BDT currency, custom auth"
+
+backend:
+  - task: "Auth - Register new user with organization"
+    implemented: true
+    working: "NA"
+    file: "/app/app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "POST /api/auth/register - creates org + admin user, returns JWT token"
+
+  - task: "Auth - Login"
+    implemented: true
+    working: "NA"
+    file: "/app/app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "POST /api/auth/login - validates credentials, returns JWT token"
+
+  - task: "Clients CRUD"
+    implemented: true
+    working: "NA"
+    file: "/app/app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "GET/POST/PUT/DELETE /api/clients - PUT available to all users, DELETE admin only"
+
+  - task: "Services CRUD"
+    implemented: true
+    working: "NA"
+    file: "/app/app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "GET/POST/PUT/DELETE /api/services - PUT available to all, DELETE admin only"
+
+  - task: "Campaign creation with auto-generated deliverables"
+    implemented: true
+    working: "NA"
+    file: "/app/app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "POST /api/campaigns - creates campaign, line items, and individual deliverables. E.g., 4 Static Posts @ 1600 = creates 4 deliverable records"
+
+  - task: "Deliverable status update with optional proof URL"
+    implemented: true
+    working: "NA"
+    file: "/app/app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "PUT /api/deliverables/:id - status dropdown (pending/in_progress/review/delivered), proof URL is OPTIONAL, auto-recalculates campaign earned revenue"
+
+  - task: "Dashboard with financial calculations"
+    implemented: true
+    working: "NA"
+    file: "/app/app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "GET /api/dashboard - projected/earned/pending revenue, client breakdown, deliverable stats. Admin sees all, team_member sees only assigned"
+
+  - task: "Team management with roles (Admin/Custom Access)"
+    implemented: true
+    working: "NA"
+    file: "/app/app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "POST /api/team/invite - accepts role (admin/team_member), designation, department. GET /api/team - lists all members"
+
+  - task: "Audit Log"
+    implemented: true
+    working: "NA"
+    file: "/app/app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "GET /api/activity-logs - admin only, filterable by entityType and action. Logs created for all CRUD operations"
+
+  - task: "Seed data"
+    implemented: true
+    working: "NA"
+    file: "/app/app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: true
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "POST /api/seed - creates demo org, 2 users, 4 clients, 7 services, 3 campaigns with line items + deliverables"
+
+metadata:
+  created_by: "main_agent"
+  version: "1.0"
+  test_sequence: 1
+  run_ui: false
+
+test_plan:
+  current_focus:
+    - "Auth - Register and Login"
+    - "Campaign creation with auto-generated deliverables"
+    - "Deliverable status update with optional proof URL"
+    - "Dashboard with financial calculations"
+    - "Team management with roles"
+    - "Audit Log"
+  stuck_tasks: []
+  test_all: true
+  test_priority: "high_first"
+
+agent_communication:
+  - agent: "main"
+    message: "Full MVP built with all backend APIs. Key test areas: 1) Auth flow (register/login), 2) Campaign creation auto-generates deliverables, 3) Deliverable status update with OPTIONAL proof URL recalculates revenue, 4) Dashboard financials are correct, 5) Team invite with role/designation/department, 6) Audit logs track all CRUD operations. Seed data endpoint at POST /api/seed creates test data. Admin: admin@agency.com/admin123, Team: member@agency.com/member123"
