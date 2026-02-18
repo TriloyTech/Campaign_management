@@ -6,19 +6,22 @@ import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { apiFetch, formatBDT, getStatusColor, getStatusLabel } from '@/lib/api';
 import { toast } from 'sonner';
-import { Plus, Megaphone, Calendar, Users } from 'lucide-react';
+import { Plus, Megaphone, Calendar } from 'lucide-react';
+import DateFilter from '@/components/DateFilter';
 
 export default function CampaignsView({ user, navigate }) {
   const [campaigns, setCampaigns] = useState([]);
   const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
+  const [dateRange, setDateRange] = useState('all');
 
-  useEffect(() => { loadCampaigns(); }, []);
+  useEffect(() => { loadCampaigns(); }, [dateRange]);
 
   const loadCampaigns = async () => {
     try {
-      const res = await apiFetch('GET', 'campaigns');
+      const params = dateRange !== 'all' ? `?dateRange=${dateRange}` : '';
+      const res = await apiFetch('GET', `campaigns${params}`);
       setCampaigns(res.campaigns || []);
     } catch (err) { toast.error(err.message); }
     finally { setLoading(false); }
@@ -30,7 +33,7 @@ export default function CampaignsView({ user, navigate }) {
     return true;
   });
 
-  const isAdmin = user.role === 'admin';
+  const isAdmin = user.role !== 'team_member';
 
   return (
     <div className="space-y-6">
@@ -39,15 +42,10 @@ export default function CampaignsView({ user, navigate }) {
           <h1 className="text-2xl font-bold">{isAdmin ? 'Campaigns' : 'My Campaigns'}</h1>
           <p className="text-muted-foreground">{isAdmin ? 'Manage all campaigns' : 'Campaigns assigned to you'}</p>
         </div>
-        {isAdmin && (
-          <Button onClick={() => navigate('campaign-create')}>
-            <Plus size={16} className="mr-2" /> New Campaign
-          </Button>
-        )}
+        {isAdmin && <Button onClick={() => navigate('campaign-create')}><Plus size={16} className="mr-2" /> New Campaign</Button>}
       </div>
 
-      {/* Filters */}
-      <div className="flex gap-3">
+      <div className="flex gap-3 flex-wrap">
         <Select value={statusFilter} onValueChange={setStatusFilter}>
           <SelectTrigger className="w-40"><SelectValue placeholder="Status" /></SelectTrigger>
           <SelectContent>
@@ -66,17 +64,12 @@ export default function CampaignsView({ user, navigate }) {
             <SelectItem value="custom">Custom</SelectItem>
           </SelectContent>
         </Select>
+        <DateFilter value={dateRange} onChange={setDateRange} />
       </div>
 
-      {loading ? (
-        <div className="space-y-4">
-          {[1,2,3].map(i => <div key={i} className="h-32 bg-muted animate-pulse rounded-lg" />)}
-        </div>
+      {loading ? (<div className="space-y-4">{[1,2,3].map(i => <div key={i} className="h-32 bg-muted animate-pulse rounded-lg" />)}</div>
       ) : filtered.length === 0 ? (
-        <div className="text-center py-16 text-muted-foreground">
-          <Megaphone className="mx-auto mb-3" size={40} />
-          <p>No campaigns found</p>
-        </div>
+        <div className="text-center py-16 text-muted-foreground"><Megaphone className="mx-auto mb-3" size={40} /><p>No campaigns found</p></div>
       ) : (
         <div className="space-y-3">
           {filtered.map(campaign => {
@@ -85,9 +78,7 @@ export default function CampaignsView({ user, navigate }) {
               <Card key={campaign.id} className="border shadow-sm hover:shadow-md transition-shadow cursor-pointer" onClick={() => navigate(`campaign-detail/${campaign.id}`)}>
                 <CardContent className="py-4">
                   <div className="flex items-center gap-4">
-                    <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
-                      <Megaphone className="text-blue-600" size={18} />
-                    </div>
+                    <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0"><Megaphone className="text-blue-600" size={18} /></div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2 mb-1">
                         <h3 className="font-semibold text-sm truncate">{campaign.name}</h3>
@@ -99,16 +90,9 @@ export default function CampaignsView({ user, navigate }) {
                         {campaign.startDate && <span className="flex items-center gap-1"><Calendar size={12} /> {campaign.startDate} - {campaign.endDate}</span>}
                       </div>
                     </div>
-                    {isAdmin && (
-                      <div className="text-right flex-shrink-0">
-                        <p className="font-semibold text-sm">{formatBDT(campaign.totalEarned)}</p>
-                        <p className="text-xs text-muted-foreground">of {formatBDT(campaign.totalProjected)}</p>
-                      </div>
-                    )}
+                    {isAdmin && (<div className="text-right flex-shrink-0"><p className="font-semibold text-sm">{formatBDT(campaign.totalEarned)}</p><p className="text-xs text-muted-foreground">of {formatBDT(campaign.totalProjected)}</p></div>)}
                     <div className="w-32 flex-shrink-0">
-                      <div className="w-full bg-gray-100 rounded-full h-2">
-                        <div className={`h-2 rounded-full transition-all ${pct >= 75 ? 'bg-emerald-500' : pct >= 40 ? 'bg-blue-500' : 'bg-amber-500'}`} style={{ width: `${pct}%` }} />
-                      </div>
+                      <div className="w-full bg-gray-100 rounded-full h-2"><div className={`h-2 rounded-full transition-all ${pct >= 75 ? 'bg-emerald-500' : pct >= 40 ? 'bg-blue-500' : 'bg-amber-500'}`} style={{ width: `${pct}%` }} /></div>
                       <p className="text-xs text-muted-foreground text-right mt-1">{pct}% delivered</p>
                     </div>
                   </div>

@@ -1,9 +1,20 @@
 'use client';
-import { LayoutDashboard, Users, Megaphone, Package, UserPlus, ChevronLeft, ChevronRight, LogOut, Briefcase, ScrollText } from 'lucide-react';
+import { LayoutDashboard, Users, Megaphone, Package, UserPlus, ChevronLeft, ChevronRight, LogOut, Briefcase, ScrollText, Building } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 
 export default function Sidebar({ user, collapsed, toggle, navigate, currentView, onLogout }) {
-  const isAdmin = user?.role === 'admin';
+  const isSuperAdmin = user?.role === 'super_admin';
+  const isAdmin = user?.role === 'admin' || isSuperAdmin;
+
+  const superAdminNav = [
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { id: 'organizations', label: 'Organizations', icon: Building },
+    { id: 'clients', label: 'Clients', icon: Users },
+    { id: 'campaigns', label: 'Campaigns', icon: Megaphone },
+    { id: 'services', label: 'Services', icon: Package },
+    { id: 'team', label: 'Team', icon: UserPlus },
+    { id: 'audit-log', label: 'Audit Log', icon: ScrollText },
+  ];
 
   const adminNav = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -21,11 +32,11 @@ export default function Sidebar({ user, collapsed, toggle, navigate, currentView
     { id: 'services', label: 'Services', icon: Package },
   ];
 
-  const navItems = isAdmin ? adminNav : teamNav;
+  const navItems = isSuperAdmin ? superAdminNav : (isAdmin ? adminNav : teamNav);
+  const roleLabel = isSuperAdmin ? 'Super Admin' : (user?.role === 'admin' ? 'Admin' : 'Custom Access');
 
   return (
     <div className={`${collapsed ? 'w-16' : 'w-64'} bg-slate-900 text-white flex flex-col transition-all duration-300 min-h-screen`}>
-      {/* Header */}
       <div className="p-4 flex items-center justify-between">
         {!collapsed && (
           <div className="flex items-center gap-2">
@@ -37,39 +48,31 @@ export default function Sidebar({ user, collapsed, toggle, navigate, currentView
           {collapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
         </button>
       </div>
-
       <Separator className="bg-slate-700" />
-
-      {/* Navigation */}
       <nav className="flex-1 p-2 space-y-1">
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = currentView === item.id || (item.id === 'campaigns' && ['campaign-detail', 'campaign-create'].includes(currentView));
           return (
-            <button
-              key={item.id}
-              onClick={() => navigate(item.id)}
+            <button key={item.id} onClick={() => navigate(item.id)}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all
                 ${isActive ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}
-                ${collapsed ? 'justify-center' : ''}`}
-            >
+                ${collapsed ? 'justify-center' : ''}`}>
               <Icon size={18} />
               {!collapsed && <span>{item.label}</span>}
             </button>
           );
         })}
       </nav>
-
-      {/* User section */}
       <div className="p-3 border-t border-slate-700">
         <div className={`flex items-center ${collapsed ? 'justify-center' : 'gap-3'}`}>
-          <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center text-xs font-medium">
+          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium ${isSuperAdmin ? 'bg-amber-500' : 'bg-blue-500'}`}>
             {user?.name?.charAt(0)?.toUpperCase()}
           </div>
           {!collapsed && (
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium truncate">{user?.name}</p>
-              <p className="text-xs text-slate-400 truncate capitalize">{user?.role === 'admin' ? 'Admin' : 'Custom Access'}</p>
+              <p className="text-xs text-slate-400 truncate">{roleLabel}</p>
             </div>
           )}
           {!collapsed && (
