@@ -62,6 +62,40 @@ function json(data, status = 200) {
   return NextResponse.json(data, { status });
 }
 
+// Helper: resolve effective org ID based on role
+function getOrgId(user, request) {
+  if (user.role === 'super_admin') {
+    const url = new URL(request.url);
+    return url.searchParams.get('organizationId') || null;
+  }
+  return user.organizationId;
+}
+
+// Helper: date range filter
+function getDateFilter(request, field = 'createdAt') {
+  const url = new URL(request.url);
+  const dateRange = url.searchParams.get('dateRange');
+  if (!dateRange || dateRange === 'all') return {};
+  const now = new Date();
+  let start;
+  switch (dateRange) {
+    case 'today':
+      start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      break;
+    case 'week':
+      start = new Date(now);
+      start.setDate(now.getDate() - now.getDay());
+      start.setHours(0, 0, 0, 0);
+      break;
+    case 'month':
+      start = new Date(now.getFullYear(), now.getMonth(), 1);
+      break;
+    default:
+      return {};
+  }
+  return { [field]: { $gte: start } };
+}
+
 // ============ AUTH ============
 async function handleAuth(request, action, method) {
   if (method === 'POST' && action === 'register') {
@@ -101,31 +135,87 @@ async function handleAuth(request, action, method) {
   return json({ error: 'Not found' }, 404);
 }
 
-// ============ CLIENTS ============
-async function handleClients(request, id, method) {
+// ============ ORGANIZATIONS ============
+async function handleOrganizations(request, id, method) {
   const user = getUser(request);
   if (!user) return json({ error: 'Unauthorized' }, 401);
   const db = await getDb();
 
   if (method === 'GET' && !id) {
-    const clients = await db.collection('clients').find({ organizationId: user.organizationId }).sort({ createdAt: -1 }).toArray();
+    if (user.role === 'super_admin') {
+      const orgs = await db.collection('organizations').find({}).sort({ createdAt: -1 }).toArray();
+      return json({ organizations: orgs });
+    }
+    const org = await db.collection('organizations').findOne({ id: user.organizationId });
+    return json({ organizations: org ? [org] : [] });
+  }
+  if (method === 'GET' && id) {
+    const org = await db.collection('organizations').findOne({ id });
+    if (!org) return json({ error: 'Organization not found' }, 404);
+    return json({ organization: org });
+  }
+  if (method === 'POST') {
+    if (user.role !== 'super_admin') return json({ error: 'Super Admin only' }, 403);
+    const data = await request.json();
+    if (!data.name) return json({ error: 'Organization name required' }, 400);
+    const org = { id: uuidv4(), name: data.name, industry: data.industry || '', address: data.address || '', phone: data.phone || '', createdAt: new Date() };
+    await db.collection('organizations').insertOne(org);
+    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: org.id, userId: user.id, userName: user.name, action: 'created', entityType: 'organization', entityId: org.id, details: `Created organization "${org.name}"`, createdAt: new Date() });
+    return json({ organization: org }, 201);
+  }
+  if (method === 'PUT' && id) {
+    if (user.role !== 'super_admin') return json({ error: 'Super Admin only' }, 403);
+    const data = await request.json();
+    const upd = {};
+    if (data.name !== undefined) upd.name = data.name;
+    if (data.industry !== undefined) upd.industry = data.industry;
+    if (data.address !== undefined) upd.address = data.address;
+    if (data.phone !== undefined) upd.phone = data.phone;
+    upd.updatedAt = new Date();
+    await db.collection('organizations').updateOne({ id }, { $set: upd });
+    const org = await db.collection('organizations').findOne({ id });
+    return json({ organization: org });
+  }
+  if (method === 'DELETE' && id) {
+    if (user.role !== 'super_admin') return json({ error: 'Super Admin only' }, 403);
+    const delOrg = await db.collection('organizations').findOne({ id });
+    await db.collection('organizations').deleteOne({ id });
+    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: id, userId: user.id, userName: user.name, action: 'deleted', entityType: 'organization', entityId: id, details: `Deleted organization "${delOrg?.name || id}"`, createdAt: new Date() });
+    return json({ success: true });
+  }
+  return json({ error: 'Not found' }, 404);
+}
+
+// ============ CLIENTS ============
+async function handleClients(request, id, method) {
+  const user = getUser(request);
+  if (!user) return json({ error: 'Unauthorized' }, 401);
+  const db = await getDb();
+  const orgId = getOrgId(user, request);
+
+  if (method === 'GET' && !id) {
+    const filter = orgId ? { organizationId: orgId } : {};
+    const clients = await db.collection('clients').find(filter).sort({ createdAt: -1 }).toArray();
     return json({ clients });
   }
   if (method === 'GET' && id) {
-    const client = await db.collection('clients').findOne({ id, organizationId: user.organizationId });
+    const filter = { id };
+    if (orgId) filter.organizationId = orgId;
+    const client = await db.collection('clients').findOne(filter);
     if (!client) return json({ error: 'Client not found' }, 404);
     return json({ client });
   }
   if (method === 'POST') {
-    if (user.role !== 'admin') return json({ error: 'Admin only' }, 403);
+    if (user.role === 'team_member') return json({ error: 'Not authorized' }, 403);
     const data = await request.json();
+    const targetOrg = orgId || user.organizationId;
     const client = {
-      id: uuidv4(), organizationId: user.organizationId, name: data.name,
+      id: uuidv4(), organizationId: targetOrg, name: data.name,
       contactPerson: data.contactPerson || '', email: data.email || '', phone: data.phone || '',
       industry: data.industry || '', status: 'active', createdAt: new Date()
     };
     await db.collection('clients').insertOne(client);
-    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: user.organizationId, userId: user.id, userName: user.name, action: 'created', entityType: 'client', entityId: client.id, details: `Created client "${client.name}"`, createdAt: new Date() });
+    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: targetOrg, userId: user.id, userName: user.name, action: 'created', entityType: 'client', entityId: client.id, details: `Created client "${client.name}"`, createdAt: new Date() });
     return json({ client }, 201);
   }
   if (method === 'PUT' && id) {
@@ -138,16 +228,18 @@ async function handleClients(request, id, method) {
     if (data.industry !== undefined) updateFields.industry = data.industry;
     if (data.status !== undefined) updateFields.status = data.status;
     updateFields.updatedAt = new Date();
-    await db.collection('clients').updateOne({ id, organizationId: user.organizationId }, { $set: updateFields });
+    const filter = { id };
+    if (orgId) filter.organizationId = orgId;
+    await db.collection('clients').updateOne(filter, { $set: updateFields });
     const client = await db.collection('clients').findOne({ id });
-    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: user.organizationId, userId: user.id, userName: user.name, action: 'modified', entityType: 'client', entityId: id, details: `Modified client "${client.name}"`, createdAt: new Date() });
+    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: client?.organizationId || orgId, userId: user.id, userName: user.name, action: 'modified', entityType: 'client', entityId: id, details: `Modified client "${client?.name}"`, createdAt: new Date() });
     return json({ client });
   }
   if (method === 'DELETE' && id) {
-    if (user.role !== 'admin') return json({ error: 'Admin only' }, 403);
+    if (user.role === 'team_member') return json({ error: 'Not authorized' }, 403);
     const delClient = await db.collection('clients').findOne({ id });
-    await db.collection('clients').deleteOne({ id, organizationId: user.organizationId });
-    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: user.organizationId, userId: user.id, userName: user.name, action: 'deleted', entityType: 'client', entityId: id, details: `Deleted client "${delClient?.name || id}"`, createdAt: new Date() });
+    await db.collection('clients').deleteOne({ id });
+    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: delClient?.organizationId || orgId, userId: user.id, userName: user.name, action: 'deleted', entityType: 'client', entityId: id, details: `Deleted client "${delClient?.name || id}"`, createdAt: new Date() });
     return json({ success: true });
   }
   return json({ error: 'Not found' }, 404);
@@ -158,20 +250,23 @@ async function handleServices(request, id, method) {
   const user = getUser(request);
   if (!user) return json({ error: 'Unauthorized' }, 401);
   const db = await getDb();
+  const orgId = getOrgId(user, request);
 
   if (method === 'GET' && !id) {
-    const services = await db.collection('service_catalog').find({ organizationId: user.organizationId }).sort({ createdAt: -1 }).toArray();
+    const filter = orgId ? { organizationId: orgId } : {};
+    const services = await db.collection('service_catalog').find(filter).sort({ createdAt: -1 }).toArray();
     return json({ services });
   }
   if (method === 'POST') {
-    if (user.role !== 'admin') return json({ error: 'Admin only' }, 403);
+    if (user.role === 'team_member') return json({ error: 'Not authorized' }, 403);
     const data = await request.json();
+    const targetOrg = orgId || user.organizationId;
     const service = {
-      id: uuidv4(), organizationId: user.organizationId, name: data.name,
+      id: uuidv4(), organizationId: targetOrg, name: data.name,
       defaultRate: Number(data.defaultRate) || 0, description: data.description || '', createdAt: new Date()
     };
     await db.collection('service_catalog').insertOne(service);
-    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: user.organizationId, userId: user.id, userName: user.name, action: 'created', entityType: 'service', entityId: service.id, details: `Created service "${service.name}" at ${service.defaultRate} BDT`, createdAt: new Date() });
+    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: targetOrg, userId: user.id, userName: user.name, action: 'created', entityType: 'service', entityId: service.id, details: `Created service "${service.name}" at ${service.defaultRate} BDT`, createdAt: new Date() });
     return json({ service }, 201);
   }
   if (method === 'PUT' && id) {
@@ -181,16 +276,16 @@ async function handleServices(request, id, method) {
     if (data.defaultRate !== undefined) updateFields.defaultRate = Number(data.defaultRate);
     if (data.description !== undefined) updateFields.description = data.description;
     updateFields.updatedAt = new Date();
-    await db.collection('service_catalog').updateOne({ id, organizationId: user.organizationId }, { $set: updateFields });
+    await db.collection('service_catalog').updateOne({ id }, { $set: updateFields });
     const service = await db.collection('service_catalog').findOne({ id });
-    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: user.organizationId, userId: user.id, userName: user.name, action: 'modified', entityType: 'service', entityId: id, details: `Modified service "${service.name}"`, createdAt: new Date() });
+    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: service?.organizationId || orgId, userId: user.id, userName: user.name, action: 'modified', entityType: 'service', entityId: id, details: `Modified service "${service?.name}"`, createdAt: new Date() });
     return json({ service });
   }
   if (method === 'DELETE' && id) {
-    if (user.role !== 'admin') return json({ error: 'Admin only' }, 403);
+    if (user.role === 'team_member') return json({ error: 'Not authorized' }, 403);
     const delSvc = await db.collection('service_catalog').findOne({ id });
-    await db.collection('service_catalog').deleteOne({ id, organizationId: user.organizationId });
-    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: user.organizationId, userId: user.id, userName: user.name, action: 'deleted', entityType: 'service', entityId: id, details: `Deleted service "${delSvc?.name || id}"`, createdAt: new Date() });
+    await db.collection('service_catalog').deleteOne({ id });
+    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: delSvc?.organizationId || orgId, userId: user.id, userName: user.name, action: 'deleted', entityType: 'service', entityId: id, details: `Deleted service "${delSvc?.name || id}"`, createdAt: new Date() });
     return json({ success: true });
   }
   return json({ error: 'Not found' }, 404);
@@ -201,9 +296,13 @@ async function handleCampaigns(request, id, method) {
   const user = getUser(request);
   if (!user) return json({ error: 'Unauthorized' }, 401);
   const db = await getDb();
+  const orgId = getOrgId(user, request);
+  const dateFilter = getDateFilter(request);
 
   if (method === 'GET' && !id) {
-    let filter = { organizationId: user.organizationId };
+    let filter = {};
+    if (orgId) filter.organizationId = orgId;
+    else if (user.role !== 'super_admin') filter.organizationId = user.organizationId;
     if (user.role === 'team_member') filter.assignedTo = user.id;
     const url = new URL(request.url);
     const status = url.searchParams.get('status');
@@ -212,12 +311,13 @@ async function handleCampaigns(request, id, method) {
     if (status) filter.status = status;
     if (clientId) filter.clientId = clientId;
     if (type) filter.type = type;
+    Object.assign(filter, dateFilter);
     const campaigns = await db.collection('campaigns').find(filter).sort({ createdAt: -1 }).toArray();
     return json({ campaigns });
   }
 
   if (method === 'GET' && id) {
-    const campaign = await db.collection('campaigns').findOne({ id, organizationId: user.organizationId });
+    const campaign = await db.collection('campaigns').findOne({ id });
     if (!campaign) return json({ error: 'Campaign not found' }, 404);
     const lineItems = await db.collection('line_items').find({ campaignId: id }).toArray();
     const deliverables = await db.collection('deliverables').find({ campaignId: id }).sort({ serviceName: 1, unitIndex: 1 }).toArray();
@@ -226,12 +326,13 @@ async function handleCampaigns(request, id, method) {
   }
 
   if (method === 'POST') {
-    if (user.role !== 'admin') return json({ error: 'Admin only' }, 403);
+    if (user.role === 'team_member') return json({ error: 'Not authorized' }, 403);
     const data = await request.json();
     const { name, clientId, type, startDate, endDate, assignedTo, lineItems } = data;
     if (!name || !clientId || !type || !lineItems?.length) return json({ error: 'Missing required fields' }, 400);
     const client = await db.collection('clients').findOne({ id: clientId });
     if (!client) return json({ error: 'Client not found' }, 404);
+    const targetOrg = orgId || client.organizationId || user.organizationId;
     const campaignId = uuidv4();
     let totalProjected = 0;
     const lineItemDocs = [];
@@ -250,14 +351,14 @@ async function handleCampaigns(request, id, method) {
       }
     }
     const campaign = {
-      id: campaignId, organizationId: user.organizationId, clientId, clientName: client.name, name, type,
+      id: campaignId, organizationId: targetOrg, clientId, clientName: client.name, name, type,
       status: 'active', startDate: startDate || '', endDate: endDate || '', assignedTo: assignedTo || [],
       totalProjected, totalEarned: 0, createdAt: new Date(), updatedAt: new Date()
     };
     await db.collection('campaigns').insertOne(campaign);
     if (lineItemDocs.length) await db.collection('line_items').insertMany(lineItemDocs);
     if (deliverableDocs.length) await db.collection('deliverables').insertMany(deliverableDocs);
-    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: user.organizationId, userId: user.id, userName: user.name, action: 'created', entityType: 'campaign', entityId: campaignId, details: `Created campaign "${name}" for ${client.name} - ${totalProjected} BDT`, createdAt: new Date() });
+    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: targetOrg, userId: user.id, userName: user.name, action: 'created', entityType: 'campaign', entityId: campaignId, details: `Created campaign "${name}" for ${client.name} - ${totalProjected} BDT`, createdAt: new Date() });
     return json({ campaign, lineItems: lineItemDocs, deliverables: deliverableDocs }, 201);
   }
 
@@ -270,19 +371,19 @@ async function handleCampaigns(request, id, method) {
     if (data.endDate !== undefined) updateFields.endDate = data.endDate;
     if (data.assignedTo !== undefined) updateFields.assignedTo = data.assignedTo;
     updateFields.updatedAt = new Date();
-    await db.collection('campaigns').updateOne({ id, organizationId: user.organizationId }, { $set: updateFields });
+    await db.collection('campaigns').updateOne({ id }, { $set: updateFields });
     const campaign = await db.collection('campaigns').findOne({ id });
-    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: user.organizationId, userId: user.id, userName: user.name, action: 'modified', entityType: 'campaign', entityId: id, details: `Modified campaign "${campaign.name}"`, createdAt: new Date() });
+    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: campaign?.organizationId, userId: user.id, userName: user.name, action: 'modified', entityType: 'campaign', entityId: id, details: `Modified campaign "${campaign?.name}"`, createdAt: new Date() });
     return json({ campaign });
   }
 
   if (method === 'DELETE' && id) {
-    if (user.role !== 'admin') return json({ error: 'Admin only' }, 403);
+    if (user.role === 'team_member') return json({ error: 'Not authorized' }, 403);
     const delCampaign = await db.collection('campaigns').findOne({ id });
-    await db.collection('campaigns').deleteOne({ id, organizationId: user.organizationId });
+    await db.collection('campaigns').deleteOne({ id });
     await db.collection('line_items').deleteMany({ campaignId: id });
     await db.collection('deliverables').deleteMany({ campaignId: id });
-    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: user.organizationId, userId: user.id, userName: user.name, action: 'deleted', entityType: 'campaign', entityId: id, details: `Deleted campaign "${delCampaign?.name || id}"`, createdAt: new Date() });
+    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: delCampaign?.organizationId, userId: user.id, userName: user.name, action: 'deleted', entityType: 'campaign', entityId: id, details: `Deleted campaign "${delCampaign?.name || id}"`, createdAt: new Date() });
     return json({ success: true });
   }
   return json({ error: 'Not found' }, 404);
@@ -308,13 +409,11 @@ async function handleDeliverables(request, id, method) {
     const data = await request.json();
     const deliverable = await db.collection('deliverables').findOne({ id });
     if (!deliverable) return json({ error: 'Deliverable not found' }, 404);
-    // Proof URL is optional for delivered status
     const updateData = { updatedAt: new Date() };
     if (data.status !== undefined) updateData.status = data.status;
     if (data.proofUrl !== undefined) updateData.proofUrl = data.proofUrl;
     if (data.assignedTo !== undefined) updateData.assignedTo = data.assignedTo;
     await db.collection('deliverables').updateOne({ id }, { $set: updateData });
-    // Recalculate campaign earned
     const allDeliverables = await db.collection('deliverables').find({ campaignId: deliverable.campaignId }).toArray();
     const totalEarned = allDeliverables.reduce((sum, d) => {
       const st = d.id === id ? (data.status || d.status) : d.status;
@@ -332,10 +431,16 @@ async function handleDashboard(request, subPath, method) {
   const user = getUser(request);
   if (!user) return json({ error: 'Unauthorized' }, 401);
   const db = await getDb();
+  const orgId = getOrgId(user, request);
+  const dateFilter = getDateFilter(request);
 
   if (subPath === 'revenue-chart') {
-    if (user.role !== 'admin') return json({ error: 'Admin only' }, 403);
-    const campaigns = await db.collection('campaigns').find({ organizationId: user.organizationId }).toArray();
+    if (user.role === 'team_member') return json({ error: 'Not authorized' }, 403);
+    let filter = {};
+    if (orgId) filter.organizationId = orgId;
+    else if (user.role !== 'super_admin') filter.organizationId = user.organizationId;
+    Object.assign(filter, dateFilter);
+    const campaigns = await db.collection('campaigns').find(filter).toArray();
     const monthlyData = {};
     for (const c of campaigns) {
       const month = new Date(c.createdAt).toISOString().slice(0, 7);
@@ -347,20 +452,23 @@ async function handleDashboard(request, subPath, method) {
     return json({ chartData });
   }
 
-  let campaignFilter = { organizationId: user.organizationId };
+  let campaignFilter = {};
+  if (orgId) campaignFilter.organizationId = orgId;
+  else if (user.role !== 'super_admin') campaignFilter.organizationId = user.organizationId;
   if (user.role === 'team_member') campaignFilter.assignedTo = user.id;
+  Object.assign(campaignFilter, dateFilter);
   const campaigns = await db.collection('campaigns').find(campaignFilter).toArray();
   const activeCampaigns = campaigns.filter(c => c.status === 'active');
 
   let financials = null;
-  if (user.role === 'admin') {
+  if (user.role !== 'team_member') {
     const totalProjected = activeCampaigns.reduce((sum, c) => sum + (c.totalProjected || 0), 0);
     const totalEarned = activeCampaigns.reduce((sum, c) => sum + (c.totalEarned || 0), 0);
     financials = { totalProjected, totalEarned, totalPending: totalProjected - totalEarned, totalCampaigns: campaigns.length, activeCampaigns: activeCampaigns.length };
   }
 
   let clientBreakdown = [];
-  if (user.role === 'admin') {
+  if (user.role !== 'team_member') {
     const clientMap = {};
     for (const c of activeCampaigns) {
       if (!clientMap[c.clientId]) clientMap[c.clientId] = { clientName: c.clientName, clientId: c.clientId, projected: 0, earned: 0 };
@@ -382,7 +490,10 @@ async function handleDashboard(request, subPath, method) {
     delivered: deliverables.filter(d => d.status === 'delivered').length
   };
 
-  const recentActivity = await db.collection('activity_logs').find({ organizationId: user.organizationId }).sort({ createdAt: -1 }).limit(10).toArray();
+  let orgFilter = {};
+  if (orgId) orgFilter.organizationId = orgId;
+  else if (user.role !== 'super_admin') orgFilter.organizationId = user.organizationId;
+  const recentActivity = await db.collection('activity_logs').find(orgFilter).sort({ createdAt: -1 }).limit(10).toArray();
   return json({ financials, campaigns: campaigns.slice(0, 5), clientBreakdown, deliverableStats, recentActivity });
 }
 
@@ -391,26 +502,34 @@ async function handleTeam(request, action, method) {
   const user = getUser(request);
   if (!user) return json({ error: 'Unauthorized' }, 401);
   const db = await getDb();
+  const orgId = getOrgId(user, request);
 
   if (method === 'GET') {
-    const members = await db.collection('users').find({ organizationId: user.organizationId }, { projection: { password: 0 } }).toArray();
+    let filter = {};
+    if (user.role === 'super_admin') {
+      if (orgId) filter.organizationId = orgId;
+    } else {
+      filter.organizationId = user.organizationId;
+    }
+    const members = await db.collection('users').find(filter, { projection: { password: 0 } }).toArray();
     return json({ members });
   }
   if (method === 'POST' && action === 'invite') {
-    if (user.role !== 'admin') return json({ error: 'Admin only' }, 403);
+    if (user.role === 'team_member') return json({ error: 'Not authorized' }, 403);
     const data = await request.json();
     if (!data.email || !data.name || !data.password) return json({ error: 'Email, name, and password required' }, 400);
     const existing = await db.collection('users').findOne({ email: data.email });
     if (existing) return json({ error: 'Email already exists' }, 400);
-    const memberRole = data.role === 'admin' ? 'admin' : 'team_member';
+    const memberRole = data.role === 'admin' ? 'admin' : (data.role === 'super_admin' ? 'super_admin' : 'team_member');
+    const targetOrg = (user.role === 'super_admin' && data.organizationId) ? data.organizationId : (orgId || user.organizationId);
     const member = {
       id: uuidv4(), email: data.email, password: hashPassword(data.password), name: data.name,
       role: memberRole, designation: data.designation || '', department: data.department || '',
-      organizationId: user.organizationId, createdAt: new Date()
+      organizationId: targetOrg, createdAt: new Date()
     };
     await db.collection('users').insertOne(member);
-    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: user.organizationId, userId: user.id, userName: user.name, action: 'created', entityType: 'team_member', entityId: member.id, details: `Added team member "${member.name}" as ${memberRole === 'admin' ? 'Admin' : 'Custom Access'}`, createdAt: new Date() });
-    return json({ member: { id: member.id, email: member.email, name: member.name, role: member.role, designation: member.designation, department: member.department } }, 201);
+    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: targetOrg, userId: user.id, userName: user.name, action: 'created', entityType: 'team_member', entityId: member.id, details: `Added team member "${member.name}" as ${memberRole}`, createdAt: new Date() });
+    return json({ member: { id: member.id, email: member.email, name: member.name, role: member.role, designation: member.designation, department: member.department, organizationId: member.organizationId } }, 201);
   }
   return json({ error: 'Not found' }, 404);
 }
@@ -419,17 +538,22 @@ async function handleTeam(request, action, method) {
 async function handleActivityLogs(request, method) {
   const user = getUser(request);
   if (!user) return json({ error: 'Unauthorized' }, 401);
-  if (user.role !== 'admin') return json({ error: 'Admin only' }, 403);
+  if (user.role === 'team_member') return json({ error: 'Not authorized' }, 403);
   const db = await getDb();
+  const orgId = getOrgId(user, request);
+  const dateFilter = getDateFilter(request);
 
   if (method === 'GET') {
     const url = new URL(request.url);
     const entityType = url.searchParams.get('entityType');
     const action = url.searchParams.get('action');
     const limit = parseInt(url.searchParams.get('limit')) || 100;
-    const filter = { organizationId: user.organizationId };
+    const filter = {};
+    if (orgId) filter.organizationId = orgId;
+    else if (user.role !== 'super_admin') filter.organizationId = user.organizationId;
     if (entityType && entityType !== 'all') filter.entityType = entityType;
     if (action && action !== 'all') filter.action = action;
+    Object.assign(filter, dateFilter);
     const logs = await db.collection('activity_logs').find(filter).sort({ createdAt: -1 }).limit(limit).toArray();
     return json({ logs });
   }
@@ -441,125 +565,124 @@ async function handleSeed(request, method) {
   if (method !== 'POST') return json({ error: 'POST only' }, 405);
   const db = await getDb();
 
-  // Clear all collections
   const collections = ['organizations', 'users', 'clients', 'service_catalog', 'campaigns', 'line_items', 'deliverables', 'activity_logs'];
-  for (const col of collections) {
-    try { await db.collection(col).deleteMany({}); } catch (e) { /* ignore */ }
-  }
+  for (const col of collections) { try { await db.collection(col).deleteMany({}); } catch (e) {} }
 
-  const orgId = uuidv4();
-  const adminId = uuidv4();
-  const memberId = uuidv4();
+  // Org 1
+  const org1Id = uuidv4();
+  const org2Id = uuidv4();
+  const superAdminId = uuidv4();
+  const admin1Id = uuidv4();
+  const member1Id = uuidv4();
+  const admin2Id = uuidv4();
+  const member2Id = uuidv4();
 
-  await db.collection('organizations').insertOne({ id: orgId, name: 'Digital Dynamix Agency', createdAt: new Date() });
+  await db.collection('organizations').insertMany([
+    { id: org1Id, name: 'Digital Dynamix Agency', industry: 'Digital Marketing', createdAt: new Date() },
+    { id: org2Id, name: 'CreativeEdge Media', industry: 'Social Media', createdAt: new Date() }
+  ]);
+
   await db.collection('users').insertMany([
-    { id: adminId, email: 'admin@agency.com', password: hashPassword('admin123'), name: 'Rafiq Ahmed', role: 'admin', organizationId: orgId, createdAt: new Date() },
-    { id: memberId, email: 'member@agency.com', password: hashPassword('member123'), name: 'Nusrat Jahan', role: 'team_member', organizationId: orgId, createdAt: new Date() }
+    { id: superAdminId, email: 'super@agency.com', password: hashPassword('super123'), name: 'Super Admin', role: 'super_admin', organizationId: org1Id, createdAt: new Date() },
+    { id: admin1Id, email: 'admin@agency.com', password: hashPassword('admin123'), name: 'Rafiq Ahmed', role: 'admin', organizationId: org1Id, designation: 'Managing Director', department: 'Management', createdAt: new Date() },
+    { id: member1Id, email: 'member@agency.com', password: hashPassword('member123'), name: 'Nusrat Jahan', role: 'team_member', organizationId: org1Id, designation: 'Graphic Designer', department: 'Creative', createdAt: new Date() },
+    { id: admin2Id, email: 'admin2@agency.com', password: hashPassword('admin123'), name: 'Ayesha Khan', role: 'admin', organizationId: org2Id, designation: 'CEO', department: 'Management', createdAt: new Date() },
+    { id: member2Id, email: 'member2@agency.com', password: hashPassword('member123'), name: 'Tanvir Hasan', role: 'team_member', organizationId: org2Id, designation: 'Video Editor', department: 'Production', createdAt: new Date() }
   ]);
 
-  const clientIds = [uuidv4(), uuidv4(), uuidv4(), uuidv4()];
+  // Org 1 clients
+  const c1 = [uuidv4(), uuidv4(), uuidv4(), uuidv4()];
   await db.collection('clients').insertMany([
-    { id: clientIds[0], organizationId: orgId, name: 'Tech Solutions Ltd', contactPerson: 'Karim Hassan', email: 'karim@techsolutions.bd', phone: '+880 1711-000001', industry: 'Technology', status: 'active', createdAt: new Date() },
-    { id: clientIds[1], organizationId: orgId, name: 'Fashion Forward', contactPerson: 'Tasnim Akter', email: 'tasnim@fashionforward.bd', phone: '+880 1711-000002', industry: 'Fashion & Lifestyle', status: 'active', createdAt: new Date() },
-    { id: clientIds[2], organizationId: orgId, name: 'Green Foods Co', contactPerson: 'Imran Hossain', email: 'imran@greenfoods.bd', phone: '+880 1711-000003', industry: 'Food & Beverage', status: 'active', createdAt: new Date() },
-    { id: clientIds[3], organizationId: orgId, name: 'Urban Realty Group', contactPerson: 'Sadia Rahman', email: 'sadia@urbanrealty.bd', phone: '+880 1711-000004', industry: 'Real Estate', status: 'active', createdAt: new Date() }
+    { id: c1[0], organizationId: org1Id, name: 'Tech Solutions Ltd', contactPerson: 'Karim Hassan', email: 'karim@techsolutions.bd', phone: '+880 1711-000001', industry: 'Technology', status: 'active', createdAt: new Date() },
+    { id: c1[1], organizationId: org1Id, name: 'Fashion Forward', contactPerson: 'Tasnim Akter', email: 'tasnim@fashionforward.bd', phone: '+880 1711-000002', industry: 'Fashion', status: 'active', createdAt: new Date() },
+    { id: c1[2], organizationId: org1Id, name: 'Green Foods Co', contactPerson: 'Imran Hossain', email: 'imran@greenfoods.bd', phone: '+880 1711-000003', industry: 'Food & Beverage', status: 'active', createdAt: new Date() },
+    { id: c1[3], organizationId: org1Id, name: 'Urban Realty Group', contactPerson: 'Sadia Rahman', email: 'sadia@urbanrealty.bd', phone: '+880 1711-000004', industry: 'Real Estate', status: 'active', createdAt: new Date() }
   ]);
 
-  const svcIds = [uuidv4(), uuidv4(), uuidv4(), uuidv4(), uuidv4(), uuidv4(), uuidv4()];
+  // Org 2 clients
+  const c2 = [uuidv4(), uuidv4()];
+  await db.collection('clients').insertMany([
+    { id: c2[0], organizationId: org2Id, name: 'Dhaka Motors', contactPerson: 'Zahid Ali', email: 'zahid@dhakamotors.bd', phone: '+880 1711-000010', industry: 'Automotive', status: 'active', createdAt: new Date() },
+    { id: c2[1], organizationId: org2Id, name: 'Pearl Beauty', contactPerson: 'Rima Sultana', email: 'rima@pearlbeauty.bd', phone: '+880 1711-000011', industry: 'Beauty & Wellness', status: 'active', createdAt: new Date() }
+  ]);
+
+  // Org 1 services
+  const s1 = [uuidv4(), uuidv4(), uuidv4(), uuidv4(), uuidv4(), uuidv4(), uuidv4()];
   await db.collection('service_catalog').insertMany([
-    { id: svcIds[0], organizationId: orgId, name: 'Static Post Design', defaultRate: 1600, description: 'Social media static post design', createdAt: new Date() },
-    { id: svcIds[1], organizationId: orgId, name: 'Motion Graphics/Reels', defaultRate: 5000, description: 'Animated reels and motion graphics', createdAt: new Date() },
-    { id: svcIds[2], organizationId: orgId, name: 'Video Editing', defaultRate: 4000, description: 'Professional video editing', createdAt: new Date() },
-    { id: svcIds[3], organizationId: orgId, name: 'Copywriting', defaultRate: 2000, description: 'Social media copywriting', createdAt: new Date() },
-    { id: svcIds[4], organizationId: orgId, name: 'AI Video Generation', defaultRate: 6000, description: 'AI-powered video content', createdAt: new Date() },
-    { id: svcIds[5], organizationId: orgId, name: 'SEO Activities', defaultRate: 3000, description: 'Search engine optimization', createdAt: new Date() },
-    { id: svcIds[6], organizationId: orgId, name: 'Media Buying', defaultRate: 10000, description: 'Paid media buying and management', createdAt: new Date() }
+    { id: s1[0], organizationId: org1Id, name: 'Static Post Design', defaultRate: 1600, description: 'Social media static post design', createdAt: new Date() },
+    { id: s1[1], organizationId: org1Id, name: 'Motion Graphics/Reels', defaultRate: 5000, description: 'Animated reels and motion graphics', createdAt: new Date() },
+    { id: s1[2], organizationId: org1Id, name: 'Video Editing', defaultRate: 4000, description: 'Professional video editing', createdAt: new Date() },
+    { id: s1[3], organizationId: org1Id, name: 'Copywriting', defaultRate: 2000, description: 'Social media copywriting', createdAt: new Date() },
+    { id: s1[4], organizationId: org1Id, name: 'AI Video Generation', defaultRate: 6000, description: 'AI-powered video content', createdAt: new Date() },
+    { id: s1[5], organizationId: org1Id, name: 'SEO Activities', defaultRate: 3000, description: 'Search engine optimization', createdAt: new Date() },
+    { id: s1[6], organizationId: org1Id, name: 'Media Buying', defaultRate: 10000, description: 'Paid media buying', createdAt: new Date() }
   ]);
 
-  // Campaign 1: Tech Solutions - Q2 Social Media
-  const c1Id = uuidv4();
-  const c1li1 = uuidv4(), c1li2 = uuidv4(), c1li3 = uuidv4();
-  const c1Deliverables = [];
-  // 8 Static Posts @ 1600
-  for (let i = 0; i < 8; i++) {
-    c1Deliverables.push({ id: uuidv4(), campaignId: c1Id, lineItemId: c1li1, serviceName: 'Static Post Design', unitIndex: i+1, status: i < 6 ? 'delivered' : 'in_progress', proofUrl: i < 6 ? 'https://facebook.com/post/' + (i+1) : '', assignedTo: memberId, rate: 1600, createdAt: new Date(), updatedAt: new Date() });
-  }
-  // 4 Reels @ 5000
-  for (let i = 0; i < 4; i++) {
-    const st = i < 2 ? 'review' : i === 2 ? 'in_progress' : 'pending';
-    c1Deliverables.push({ id: uuidv4(), campaignId: c1Id, lineItemId: c1li2, serviceName: 'Motion Graphics/Reels', unitIndex: i+1, status: st, proofUrl: '', assignedTo: memberId, rate: 5000, createdAt: new Date(), updatedAt: new Date() });
-  }
-  // 4 Copywriting @ 2000
-  for (let i = 0; i < 4; i++) {
-    const st = i === 0 ? 'review' : i === 1 ? 'in_progress' : 'pending';
-    c1Deliverables.push({ id: uuidv4(), campaignId: c1Id, lineItemId: c1li3, serviceName: 'Copywriting', unitIndex: i+1, status: st, proofUrl: '', assignedTo: memberId, rate: 2000, createdAt: new Date(), updatedAt: new Date() });
-  }
-  const c1Earned = c1Deliverables.filter(d => d.status === 'delivered').reduce((s,d) => s+d.rate, 0);
-
-  await db.collection('campaigns').insertOne({ id: c1Id, organizationId: orgId, clientId: clientIds[0], clientName: 'Tech Solutions Ltd', name: 'Tech Solutions - Q2 Social Media', type: 'retainer', status: 'active', startDate: '2025-04-01', endDate: '2025-06-30', assignedTo: [memberId], totalProjected: 40800, totalEarned: c1Earned, createdAt: new Date('2025-04-01'), updatedAt: new Date() });
-  await db.collection('line_items').insertMany([
-    { id: c1li1, campaignId: c1Id, serviceId: svcIds[0], serviceName: 'Static Post Design', quantity: 8, rate: 1600, total: 12800, createdAt: new Date() },
-    { id: c1li2, campaignId: c1Id, serviceId: svcIds[1], serviceName: 'Motion Graphics/Reels', quantity: 4, rate: 5000, total: 20000, createdAt: new Date() },
-    { id: c1li3, campaignId: c1Id, serviceId: svcIds[3], serviceName: 'Copywriting', quantity: 4, rate: 2000, total: 8000, createdAt: new Date() }
+  // Org 2 services
+  const s2 = [uuidv4(), uuidv4(), uuidv4()];
+  await db.collection('service_catalog').insertMany([
+    { id: s2[0], organizationId: org2Id, name: 'Social Media Post', defaultRate: 1800, description: 'Social media content', createdAt: new Date() },
+    { id: s2[1], organizationId: org2Id, name: 'Reels Production', defaultRate: 5500, description: 'Instagram/TikTok reels', createdAt: new Date() },
+    { id: s2[2], organizationId: org2Id, name: 'Brand Strategy', defaultRate: 8000, description: 'Brand strategy consulting', createdAt: new Date() }
   ]);
-  await db.collection('deliverables').insertMany(c1Deliverables);
 
-  // Campaign 2: Fashion Forward - Summer Launch
-  const c2Id = uuidv4();
-  const c2li1 = uuidv4(), c2li2 = uuidv4(), c2li3 = uuidv4();
-  const c2Deliverables = [];
-  for (let i = 0; i < 12; i++) {
-    c2Deliverables.push({ id: uuidv4(), campaignId: c2Id, lineItemId: c2li1, serviceName: 'Static Post Design', unitIndex: i+1, status: i < 8 ? 'delivered' : 'in_progress', proofUrl: i < 8 ? 'https://instagram.com/p/post' + (i+1) : '', assignedTo: memberId, rate: 1600, createdAt: new Date(), updatedAt: new Date() });
-  }
-  for (let i = 0; i < 6; i++) {
-    c2Deliverables.push({ id: uuidv4(), campaignId: c2Id, lineItemId: c2li2, serviceName: 'Motion Graphics/Reels', unitIndex: i+1, status: i < 4 ? 'in_progress' : 'pending', proofUrl: '', assignedTo: memberId, rate: 5000, createdAt: new Date(), updatedAt: new Date() });
-  }
-  for (let i = 0; i < 2; i++) {
-    c2Deliverables.push({ id: uuidv4(), campaignId: c2Id, lineItemId: c2li3, serviceName: 'AI Video Generation', unitIndex: i+1, status: 'pending', proofUrl: '', assignedTo: memberId, rate: 6000, createdAt: new Date(), updatedAt: new Date() });
-  }
-  const c2Earned = c2Deliverables.filter(d => d.status === 'delivered').reduce((s,d) => s+d.rate, 0);
+  // Org 1 campaigns
+  const camp1 = uuidv4(); const li1a = uuidv4(), li1b = uuidv4(), li1c = uuidv4();
+  const d1 = [];
+  for (let i = 0; i < 8; i++) d1.push({ id: uuidv4(), campaignId: camp1, lineItemId: li1a, serviceName: 'Static Post Design', unitIndex: i+1, status: i < 6 ? 'delivered' : 'in_progress', proofUrl: i < 6 ? 'https://facebook.com/post/' + (i+1) : '', assignedTo: member1Id, rate: 1600, createdAt: new Date(), updatedAt: new Date() });
+  for (let i = 0; i < 4; i++) d1.push({ id: uuidv4(), campaignId: camp1, lineItemId: li1b, serviceName: 'Motion Graphics/Reels', unitIndex: i+1, status: i < 2 ? 'review' : i === 2 ? 'in_progress' : 'pending', proofUrl: '', assignedTo: member1Id, rate: 5000, createdAt: new Date(), updatedAt: new Date() });
+  for (let i = 0; i < 4; i++) d1.push({ id: uuidv4(), campaignId: camp1, lineItemId: li1c, serviceName: 'Copywriting', unitIndex: i+1, status: i === 0 ? 'review' : i === 1 ? 'in_progress' : 'pending', proofUrl: '', assignedTo: member1Id, rate: 2000, createdAt: new Date(), updatedAt: new Date() });
+  const e1 = d1.filter(d => d.status === 'delivered').reduce((s,d) => s+d.rate, 0);
+  await db.collection('campaigns').insertOne({ id: camp1, organizationId: org1Id, clientId: c1[0], clientName: 'Tech Solutions Ltd', name: 'Tech Solutions - Q2 Social Media', type: 'retainer', status: 'active', startDate: '2025-04-01', endDate: '2025-06-30', assignedTo: [member1Id], totalProjected: 40800, totalEarned: e1, createdAt: new Date('2025-04-01'), updatedAt: new Date() });
+  await db.collection('line_items').insertMany([ { id: li1a, campaignId: camp1, serviceId: s1[0], serviceName: 'Static Post Design', quantity: 8, rate: 1600, total: 12800, createdAt: new Date() }, { id: li1b, campaignId: camp1, serviceId: s1[1], serviceName: 'Motion Graphics/Reels', quantity: 4, rate: 5000, total: 20000, createdAt: new Date() }, { id: li1c, campaignId: camp1, serviceId: s1[3], serviceName: 'Copywriting', quantity: 4, rate: 2000, total: 8000, createdAt: new Date() } ]);
+  await db.collection('deliverables').insertMany(d1);
 
-  await db.collection('campaigns').insertOne({ id: c2Id, organizationId: orgId, clientId: clientIds[1], clientName: 'Fashion Forward', name: 'Fashion Forward - Summer Launch', type: 'one-time', status: 'active', startDate: '2025-05-01', endDate: '2025-07-31', assignedTo: [memberId], totalProjected: 61200, totalEarned: c2Earned, createdAt: new Date('2025-05-01'), updatedAt: new Date() });
-  await db.collection('line_items').insertMany([
-    { id: c2li1, campaignId: c2Id, serviceId: svcIds[0], serviceName: 'Static Post Design', quantity: 12, rate: 1600, total: 19200, createdAt: new Date() },
-    { id: c2li2, campaignId: c2Id, serviceId: svcIds[1], serviceName: 'Motion Graphics/Reels', quantity: 6, rate: 5000, total: 30000, createdAt: new Date() },
-    { id: c2li3, campaignId: c2Id, serviceId: svcIds[4], serviceName: 'AI Video Generation', quantity: 2, rate: 6000, total: 12000, createdAt: new Date() }
-  ]);
-  await db.collection('deliverables').insertMany(c2Deliverables);
+  const camp2 = uuidv4(); const li2a = uuidv4(), li2b = uuidv4(), li2c = uuidv4();
+  const d2 = [];
+  for (let i = 0; i < 12; i++) d2.push({ id: uuidv4(), campaignId: camp2, lineItemId: li2a, serviceName: 'Static Post Design', unitIndex: i+1, status: i < 8 ? 'delivered' : 'in_progress', proofUrl: i < 8 ? 'https://instagram.com/p/' + (i+1) : '', assignedTo: member1Id, rate: 1600, createdAt: new Date(), updatedAt: new Date() });
+  for (let i = 0; i < 6; i++) d2.push({ id: uuidv4(), campaignId: camp2, lineItemId: li2b, serviceName: 'Motion Graphics/Reels', unitIndex: i+1, status: i < 4 ? 'in_progress' : 'pending', proofUrl: '', assignedTo: member1Id, rate: 5000, createdAt: new Date(), updatedAt: new Date() });
+  for (let i = 0; i < 2; i++) d2.push({ id: uuidv4(), campaignId: camp2, lineItemId: li2c, serviceName: 'AI Video Generation', unitIndex: i+1, status: 'pending', proofUrl: '', assignedTo: member1Id, rate: 6000, createdAt: new Date(), updatedAt: new Date() });
+  const e2 = d2.filter(d => d.status === 'delivered').reduce((s,d) => s+d.rate, 0);
+  await db.collection('campaigns').insertOne({ id: camp2, organizationId: org1Id, clientId: c1[1], clientName: 'Fashion Forward', name: 'Fashion Forward - Summer Launch', type: 'one-time', status: 'active', startDate: '2025-05-01', endDate: '2025-07-31', assignedTo: [member1Id], totalProjected: 61200, totalEarned: e2, createdAt: new Date('2025-05-01'), updatedAt: new Date() });
+  await db.collection('line_items').insertMany([ { id: li2a, campaignId: camp2, serviceId: s1[0], serviceName: 'Static Post Design', quantity: 12, rate: 1600, total: 19200, createdAt: new Date() }, { id: li2b, campaignId: camp2, serviceId: s1[1], serviceName: 'Motion Graphics/Reels', quantity: 6, rate: 5000, total: 30000, createdAt: new Date() }, { id: li2c, campaignId: camp2, serviceId: s1[4], serviceName: 'AI Video Generation', quantity: 2, rate: 6000, total: 12000, createdAt: new Date() } ]);
+  await db.collection('deliverables').insertMany(d2);
 
-  // Campaign 3: Green Foods - Brand Refresh
-  const c3Id = uuidv4();
-  const c3li1 = uuidv4(), c3li2 = uuidv4(), c3li3 = uuidv4();
-  const c3Deliverables = [];
-  for (let i = 0; i < 6; i++) {
-    c3Deliverables.push({ id: uuidv4(), campaignId: c3Id, lineItemId: c3li1, serviceName: 'Static Post Design', unitIndex: i+1, status: i < 3 ? 'delivered' : 'in_progress', proofUrl: i < 3 ? 'https://facebook.com/greenfoods/post' + (i+1) : '', assignedTo: memberId, rate: 1600, createdAt: new Date(), updatedAt: new Date() });
-  }
-  for (let i = 0; i < 2; i++) {
-    c3Deliverables.push({ id: uuidv4(), campaignId: c3Id, lineItemId: c3li2, serviceName: 'Video Editing', unitIndex: i+1, status: i === 0 ? 'in_progress' : 'pending', proofUrl: '', assignedTo: memberId, rate: 4000, createdAt: new Date(), updatedAt: new Date() });
-  }
-  for (let i = 0; i < 3; i++) {
-    c3Deliverables.push({ id: uuidv4(), campaignId: c3Id, lineItemId: c3li3, serviceName: 'SEO Activities', unitIndex: i+1, status: 'pending', proofUrl: '', assignedTo: memberId, rate: 3000, createdAt: new Date(), updatedAt: new Date() });
-  }
-  const c3Earned = c3Deliverables.filter(d => d.status === 'delivered').reduce((s,d) => s+d.rate, 0);
+  const camp3 = uuidv4(); const li3a = uuidv4(), li3b = uuidv4(), li3c = uuidv4();
+  const d3 = [];
+  for (let i = 0; i < 6; i++) d3.push({ id: uuidv4(), campaignId: camp3, lineItemId: li3a, serviceName: 'Static Post Design', unitIndex: i+1, status: i < 3 ? 'delivered' : 'in_progress', proofUrl: i < 3 ? 'https://facebook.com/greenfoods/' + (i+1) : '', assignedTo: member1Id, rate: 1600, createdAt: new Date(), updatedAt: new Date() });
+  for (let i = 0; i < 2; i++) d3.push({ id: uuidv4(), campaignId: camp3, lineItemId: li3b, serviceName: 'Video Editing', unitIndex: i+1, status: i === 0 ? 'in_progress' : 'pending', proofUrl: '', assignedTo: member1Id, rate: 4000, createdAt: new Date(), updatedAt: new Date() });
+  for (let i = 0; i < 3; i++) d3.push({ id: uuidv4(), campaignId: camp3, lineItemId: li3c, serviceName: 'SEO Activities', unitIndex: i+1, status: 'pending', proofUrl: '', assignedTo: member1Id, rate: 3000, createdAt: new Date(), updatedAt: new Date() });
+  const e3 = d3.filter(d => d.status === 'delivered').reduce((s,d) => s+d.rate, 0);
+  await db.collection('campaigns').insertOne({ id: camp3, organizationId: org1Id, clientId: c1[2], clientName: 'Green Foods Co', name: 'Green Foods - Brand Refresh', type: 'custom', status: 'active', startDate: '2025-05-15', endDate: '2025-08-15', assignedTo: [member1Id], totalProjected: 26600, totalEarned: e3, createdAt: new Date('2025-05-15'), updatedAt: new Date() });
+  await db.collection('line_items').insertMany([ { id: li3a, campaignId: camp3, serviceId: s1[0], serviceName: 'Static Post Design', quantity: 6, rate: 1600, total: 9600, createdAt: new Date() }, { id: li3b, campaignId: camp3, serviceId: s1[2], serviceName: 'Video Editing', quantity: 2, rate: 4000, total: 8000, createdAt: new Date() }, { id: li3c, campaignId: camp3, serviceId: s1[5], serviceName: 'SEO Activities', quantity: 3, rate: 3000, total: 9000, createdAt: new Date() } ]);
+  await db.collection('deliverables').insertMany(d3);
 
-  await db.collection('campaigns').insertOne({ id: c3Id, organizationId: orgId, clientId: clientIds[2], clientName: 'Green Foods Co', name: 'Green Foods - Brand Refresh', type: 'custom', status: 'active', startDate: '2025-05-15', endDate: '2025-08-15', assignedTo: [memberId], totalProjected: 26600, totalEarned: c3Earned, createdAt: new Date('2025-05-15'), updatedAt: new Date() });
-  await db.collection('line_items').insertMany([
-    { id: c3li1, campaignId: c3Id, serviceId: svcIds[0], serviceName: 'Static Post Design', quantity: 6, rate: 1600, total: 9600, createdAt: new Date() },
-    { id: c3li2, campaignId: c3Id, serviceId: svcIds[2], serviceName: 'Video Editing', quantity: 2, rate: 4000, total: 8000, createdAt: new Date() },
-    { id: c3li3, campaignId: c3Id, serviceId: svcIds[5], serviceName: 'SEO Activities', quantity: 3, rate: 3000, total: 9000, createdAt: new Date() }
-  ]);
-  await db.collection('deliverables').insertMany(c3Deliverables);
+  // Org 2 campaign
+  const camp4 = uuidv4(); const li4a = uuidv4(), li4b = uuidv4();
+  const d4 = [];
+  for (let i = 0; i < 6; i++) d4.push({ id: uuidv4(), campaignId: camp4, lineItemId: li4a, serviceName: 'Social Media Post', unitIndex: i+1, status: i < 3 ? 'delivered' : i < 5 ? 'in_progress' : 'pending', proofUrl: i < 3 ? 'https://instagram.com/dhakamotors/' + (i+1) : '', assignedTo: member2Id, rate: 1800, createdAt: new Date(), updatedAt: new Date() });
+  for (let i = 0; i < 3; i++) d4.push({ id: uuidv4(), campaignId: camp4, lineItemId: li4b, serviceName: 'Reels Production', unitIndex: i+1, status: i < 1 ? 'delivered' : 'pending', proofUrl: i < 1 ? 'https://instagram.com/reel/motors1' : '', assignedTo: member2Id, rate: 5500, createdAt: new Date(), updatedAt: new Date() });
+  const e4 = d4.filter(d => d.status === 'delivered').reduce((s,d) => s+d.rate, 0);
+  await db.collection('campaigns').insertOne({ id: camp4, organizationId: org2Id, clientId: c2[0], clientName: 'Dhaka Motors', name: 'Dhaka Motors - Launch Campaign', type: 'one-time', status: 'active', startDate: '2025-06-01', endDate: '2025-08-31', assignedTo: [member2Id], totalProjected: 27300, totalEarned: e4, createdAt: new Date('2025-06-01'), updatedAt: new Date() });
+  await db.collection('line_items').insertMany([ { id: li4a, campaignId: camp4, serviceId: s2[0], serviceName: 'Social Media Post', quantity: 6, rate: 1800, total: 10800, createdAt: new Date() }, { id: li4b, campaignId: camp4, serviceId: s2[1], serviceName: 'Reels Production', quantity: 3, rate: 5500, total: 16500, createdAt: new Date() } ]);
+  await db.collection('deliverables').insertMany(d4);
 
-  // Activity logs
   await db.collection('activity_logs').insertMany([
-    { id: uuidv4(), organizationId: orgId, userId: adminId, userName: 'Rafiq Ahmed', action: 'created', entityType: 'campaign', entityId: c1Id, details: 'Created campaign "Tech Solutions - Q2 Social Media"', createdAt: new Date('2025-04-01') },
-    { id: uuidv4(), organizationId: orgId, userId: adminId, userName: 'Rafiq Ahmed', action: 'created', entityType: 'campaign', entityId: c2Id, details: 'Created campaign "Fashion Forward - Summer Launch"', createdAt: new Date('2025-05-01') },
-    { id: uuidv4(), organizationId: orgId, userId: adminId, userName: 'Rafiq Ahmed', action: 'created', entityType: 'campaign', entityId: c3Id, details: 'Created campaign "Green Foods - Brand Refresh"', createdAt: new Date('2025-05-15') },
-    { id: uuidv4(), organizationId: orgId, userId: memberId, userName: 'Nusrat Jahan', action: 'updated', entityType: 'deliverable', entityId: uuidv4(), details: 'Delivered 6 Static Posts for Tech Solutions', createdAt: new Date('2025-05-20') },
-    { id: uuidv4(), organizationId: orgId, userId: memberId, userName: 'Nusrat Jahan', action: 'updated', entityType: 'deliverable', entityId: uuidv4(), details: 'Delivered 8 Static Posts for Fashion Forward', createdAt: new Date('2025-06-01') }
+    { id: uuidv4(), organizationId: org1Id, userId: admin1Id, userName: 'Rafiq Ahmed', action: 'created', entityType: 'campaign', entityId: camp1, details: 'Created "Tech Solutions - Q2 Social Media"', createdAt: new Date('2025-04-01') },
+    { id: uuidv4(), organizationId: org1Id, userId: admin1Id, userName: 'Rafiq Ahmed', action: 'created', entityType: 'campaign', entityId: camp2, details: 'Created "Fashion Forward - Summer Launch"', createdAt: new Date('2025-05-01') },
+    { id: uuidv4(), organizationId: org1Id, userId: admin1Id, userName: 'Rafiq Ahmed', action: 'created', entityType: 'campaign', entityId: camp3, details: 'Created "Green Foods - Brand Refresh"', createdAt: new Date('2025-05-15') },
+    { id: uuidv4(), organizationId: org2Id, userId: admin2Id, userName: 'Ayesha Khan', action: 'created', entityType: 'campaign', entityId: camp4, details: 'Created "Dhaka Motors - Launch Campaign"', createdAt: new Date('2025-06-01') },
+    { id: uuidv4(), organizationId: org1Id, userId: member1Id, userName: 'Nusrat Jahan', action: 'updated', entityType: 'deliverable', entityId: uuidv4(), details: 'Delivered 6 Static Posts for Tech Solutions', createdAt: new Date('2025-05-20') },
+    { id: uuidv4(), organizationId: org1Id, userId: member1Id, userName: 'Nusrat Jahan', action: 'updated', entityType: 'deliverable', entityId: uuidv4(), details: 'Delivered 8 Static Posts for Fashion Forward', createdAt: new Date('2025-06-01') }
   ]);
 
-  return json({ success: true, message: 'Seed data created', credentials: { admin: { email: 'admin@agency.com', password: 'admin123' }, teamMember: { email: 'member@agency.com', password: 'member123' } } });
+  return json({ success: true, message: 'Seed data created with 2 organizations', credentials: {
+    superAdmin: { email: 'super@agency.com', password: 'super123' },
+    admin1: { email: 'admin@agency.com', password: 'admin123' },
+    admin2: { email: 'admin2@agency.com', password: 'admin123' },
+    teamMember1: { email: 'member@agency.com', password: 'member123' },
+    teamMember2: { email: 'member2@agency.com', password: 'member123' }
+  }});
 }
 
 // ============ MAIN HANDLERS ============
@@ -568,6 +691,7 @@ async function handleRequest(request, pathSegments, method) {
   try {
     switch (resource) {
       case 'auth': return await handleAuth(request, id, method);
+      case 'organizations': return await handleOrganizations(request, id, method);
       case 'clients': return await handleClients(request, id, method);
       case 'services': return await handleServices(request, id, method);
       case 'campaigns': return await handleCampaigns(request, id, method);
@@ -576,7 +700,7 @@ async function handleRequest(request, pathSegments, method) {
       case 'team': return await handleTeam(request, id, method);
       case 'activity-logs': return await handleActivityLogs(request, method);
       case 'seed': return await handleSeed(request, method);
-      default: return json({ status: 'Campaign Tracker API running', version: '1.0' });
+      default: return json({ status: 'Campaign Tracker API running', version: '2.0' });
     }
   } catch (error) {
     console.error('API Error:', error);
@@ -605,12 +729,5 @@ export async function DELETE(request, { params }) {
 }
 
 export async function OPTIONS() {
-  return new NextResponse(null, {
-    status: 200,
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    },
-  });
+  return new NextResponse(null, { status: 200, headers: { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization' } });
 }
