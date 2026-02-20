@@ -13,6 +13,7 @@ import TeamView from '@/components/TeamView';
 import AuditLogView from '@/components/AuditLogView';
 import OrganizationsView from '@/components/OrganizationsView';
 import OrgSelector from '@/components/OrgSelector';
+import ProfileView from '@/components/ProfileView';
 import { setApiContext } from '@/lib/api';
 import { Loader2 } from 'lucide-react';
 
