@@ -140,18 +140,21 @@ export default function App() {
   const isSuperAdmin = user.role === 'super_admin';
   const selectedOrgName = organizations.find(o => o.id === selectedOrgId)?.name;
 
+  // Key for forcing re-render when org changes
+  const viewKey = `${currentView}-${selectedOrgId || 'default'}`;
+
   const renderView = () => {
     switch (currentView) {
-      case 'dashboard': return <DashboardView user={user} navigate={navigate} />;
-      case 'organizations': return <OrganizationsView user={user} />;
-      case 'clients': return <ClientsView user={user} />;
-      case 'services': return <ServicesView user={user} />;
-      case 'campaigns': return <CampaignsView user={user} navigate={navigate} />;
-      case 'campaign-create': return <CampaignCreate user={user} navigate={navigate} />;
-      case 'campaign-detail': return <CampaignDetail campaignId={viewParams.id} user={user} navigate={navigate} />;
-      case 'team': return <TeamView user={user} />;
-      case 'audit-log': return <AuditLogView user={user} />;
-      default: return <DashboardView user={user} navigate={navigate} />;
+      case 'dashboard': return <DashboardView key={viewKey} user={user} navigate={navigate} />;
+      case 'organizations': return <OrganizationsView key={viewKey} user={user} />;
+      case 'clients': return <ClientsView key={viewKey} user={user} />;
+      case 'services': return <ServicesView key={viewKey} user={user} />;
+      case 'campaigns': return <CampaignsView key={viewKey} user={user} navigate={navigate} />;
+      case 'campaign-create': return <CampaignCreate key={viewKey} user={user} navigate={navigate} />;
+      case 'campaign-detail': return <CampaignDetail key={viewKey} campaignId={viewParams.id} user={user} navigate={navigate} />;
+      case 'team': return <TeamView key={viewKey} user={user} />;
+      case 'audit-log': return <AuditLogView key={viewKey} user={user} />;
+      default: return <DashboardView key={viewKey} user={user} navigate={navigate} />;
     }
   };
 
