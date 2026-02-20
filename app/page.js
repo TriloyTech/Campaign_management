@@ -152,6 +152,7 @@ export default function App() {
       case 'campaign-detail': return <CampaignDetail key={viewKey} campaignId={viewParams.id} user={user} navigate={navigate} />;
       case 'team': return <TeamView key={viewKey} user={user} />;
       case 'audit-log': return <AuditLogView key={viewKey} user={user} />;
+      case 'profile': return <ProfileView key={viewKey} user={user} onUserUpdate={handleUserUpdate} />;
       default: return <DashboardView key={viewKey} user={user} navigate={navigate} />;
     }
   };
