@@ -1,5 +1,5 @@
 'use client';
-import { LayoutDashboard, Users, Megaphone, Package, UserPlus, ChevronLeft, ChevronRight, LogOut, Briefcase, ScrollText, Building } from 'lucide-react';
+import { LayoutDashboard, Users, Megaphone, Package, UserPlus, ChevronLeft, ChevronRight, LogOut, Briefcase, ScrollText, Building, UserCircle } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 
 export default function Sidebar({ user, collapsed, toggle, navigate, currentView, onLogout }) {
