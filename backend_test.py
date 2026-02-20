@@ -190,6 +190,249 @@ class CampaignTrackerTester:
         else:
             self.log_result("Auth Me", False, f"Status: {response.status_code}")
     
+    def test_profile_update(self):
+        """Test profile update endpoint"""
+        print("\n=== TESTING PROFILE UPDATE ===")
+        
+        if not self.admin_token:
+            self.log_result("Profile Update Setup", False, "No admin token")
+            return
+        
+        # Test profile update with valid data
+        profile_data = {
+            "name": "Updated Admin Name",
+            "designation": "Senior Marketing Manager", 
+            "department": "Marketing Operations",
+            "phone": "+880 1711-888888"
+        }
+        
+        response, error = self.make_request("PUT", "/auth/profile", profile_data, self.admin_token)
+        if error:
+            self.log_result("Profile Update (Valid Data)", False, error)
+            return
+        
+        if response.status_code == 200:
+            data = response.json()
+            if "token" in data and "user" in data:
+                user = data["user"]
+                if (user.get("name") == "Updated Admin Name" and 
+                    user.get("designation") == "Senior Marketing Manager" and
+                    user.get("department") == "Marketing Operations" and
+                    user.get("phone") == "+880 1711-888888"):
+                    self.log_result("Profile Update (Valid Data)", True, "Profile updated successfully with new token")
+                    # Update token since profile update returns new token
+                    self.admin_token = data["token"]
+                else:
+                    self.log_result("Profile Update (Valid Data)", False, "Profile data not updated correctly")
+            else:
+                self.log_result("Profile Update (Valid Data)", False, "Missing token or user in response")
+        else:
+            self.log_result("Profile Update (Valid Data)", False, f"Status: {response.status_code}")
+        
+        # Test email change to unique email
+        email_change_data = {"email": "admin.updated@agency.com"}
+        response, error = self.make_request("PUT", "/auth/profile", email_change_data, self.admin_token)
+        if error:
+            self.log_result("Profile Update (Email Change)", False, error)
+        elif response.status_code == 200:
+            data = response.json()
+            if data.get("user", {}).get("email") == "admin.updated@agency.com":
+                self.log_result("Profile Update (Email Change)", True, "Email changed successfully")
+                # Update token again
+                self.admin_token = data["token"]
+            else:
+                self.log_result("Profile Update (Email Change)", False, "Email not updated")
+        else:
+            self.log_result("Profile Update (Email Change)", False, f"Status: {response.status_code}")
+        
+        # Test email change to existing email (should fail)
+        duplicate_email_data = {"email": "member@agency.com"}  # This email already exists
+        response, error = self.make_request("PUT", "/auth/profile", duplicate_email_data, self.admin_token)
+        if error:
+            self.log_result("Profile Update (Duplicate Email)", False, error)
+        elif response.status_code == 400:
+            data = response.json()
+            if "already in use" in data.get("error", "").lower():
+                self.log_result("Profile Update (Duplicate Email)", True, "Correctly rejected duplicate email")
+            else:
+                self.log_result("Profile Update (Duplicate Email)", False, "Wrong error message for duplicate email")
+        else:
+            self.log_result("Profile Update (Duplicate Email)", False, f"Should fail with 400, got: {response.status_code}")
+        
+        # Test team member can also update their profile
+        if self.member_token:
+            member_profile_data = {
+                "name": "Updated Team Member",
+                "designation": "Creative Designer",
+                "department": "Creative Team",
+                "phone": "+880 1711-777777"
+            }
+            
+            response, error = self.make_request("PUT", "/auth/profile", member_profile_data, self.member_token)
+            if error:
+                self.log_result("Profile Update (Team Member)", False, error)
+            elif response.status_code == 200:
+                data = response.json()
+                user = data.get("user", {})
+                if user.get("name") == "Updated Team Member":
+                    self.log_result("Profile Update (Team Member)", True, "Team member can update profile")
+                    # Update member token
+                    self.member_token = data["token"]
+                else:
+                    self.log_result("Profile Update (Team Member)", False, "Team member profile not updated")
+            else:
+                self.log_result("Profile Update (Team Member)", False, f"Status: {response.status_code}")
+    
+    def test_password_change(self):
+        """Test password change endpoint"""
+        print("\n=== TESTING PASSWORD CHANGE ===")
+        
+        if not self.admin_token:
+            self.log_result("Password Change Setup", False, "No admin token")
+            return
+        
+        # Test password change with correct current password
+        password_data = {
+            "currentPassword": "admin123",
+            "newPassword": "newadmin123"
+        }
+        
+        response, error = self.make_request("PUT", "/auth/password", password_data, self.admin_token)
+        if error:
+            self.log_result("Password Change (Valid)", False, error)
+            return
+        
+        if response.status_code == 200:
+            data = response.json()
+            if data.get("success") and "updated successfully" in data.get("message", ""):
+                self.log_result("Password Change (Valid)", True, "Password changed successfully")
+            else:
+                self.log_result("Password Change (Valid)", False, "Invalid success response")
+        else:
+            self.log_result("Password Change (Valid)", False, f"Status: {response.status_code}")
+        
+        # Test login with new password
+        new_login_data = {
+            "email": "admin.updated@agency.com",  # Using updated email from profile test
+            "password": "newadmin123"  # New password
+        }
+        
+        response, error = self.make_request("POST", "/auth/login", new_login_data)
+        if error:
+            self.log_result("Login with New Password", False, error)
+        elif response.status_code == 200:
+            data = response.json()
+            if "token" in data:
+                self.log_result("Login with New Password", True, "Can login with new password")
+                self.admin_token = data["token"]  # Update token
+            else:
+                self.log_result("Login with New Password", False, "No token in login response")
+        else:
+            self.log_result("Login with New Password", False, f"Status: {response.status_code}")
+        
+        # Test password change with incorrect current password
+        wrong_password_data = {
+            "currentPassword": "wrongpassword",
+            "newPassword": "anothernewpass"
+        }
+        
+        response, error = self.make_request("PUT", "/auth/password", wrong_password_data, self.admin_token)
+        if error:
+            self.log_result("Password Change (Wrong Current)", False, error)
+        elif response.status_code == 401:
+            data = response.json()
+            if "incorrect" in data.get("error", "").lower():
+                self.log_result("Password Change (Wrong Current)", True, "Correctly rejected wrong current password")
+            else:
+                self.log_result("Password Change (Wrong Current)", False, "Wrong error message")
+        else:
+            self.log_result("Password Change (Wrong Current)", False, f"Should fail with 401, got: {response.status_code}")
+        
+        # Test password change with short new password
+        short_password_data = {
+            "currentPassword": "newadmin123",
+            "newPassword": "12345"  # Less than 6 characters
+        }
+        
+        response, error = self.make_request("PUT", "/auth/password", short_password_data, self.admin_token)
+        if error:
+            self.log_result("Password Change (Short Password)", False, error)
+        elif response.status_code == 400:
+            data = response.json()
+            if "at least 6 characters" in data.get("error", ""):
+                self.log_result("Password Change (Short Password)", True, "Correctly rejected short password")
+            else:
+                self.log_result("Password Change (Short Password)", False, "Wrong error message for short password")
+        else:
+            self.log_result("Password Change (Short Password)", False, f"Should fail with 400, got: {response.status_code}")
+        
+        # Test team member can change password
+        if self.member_token:
+            member_password_data = {
+                "currentPassword": "member123",
+                "newPassword": "newmember123"
+            }
+            
+            response, error = self.make_request("PUT", "/auth/password", member_password_data, self.member_token)
+            if error:
+                self.log_result("Password Change (Team Member)", False, error)
+            elif response.status_code == 200:
+                self.log_result("Password Change (Team Member)", True, "Team member can change password")
+            else:
+                self.log_result("Password Change (Team Member)", False, f"Status: {response.status_code}")
+    
+    def test_enhanced_me_endpoint(self):
+        """Test enhanced GET /auth/me with new fields"""
+        print("\n=== TESTING ENHANCED ME ENDPOINT ===")
+        
+        if not self.admin_token:
+            self.log_result("Enhanced Me Test", False, "No admin token")
+            return
+        
+        # Test admin me endpoint includes new fields
+        response, error = self.make_request("GET", "/auth/me", token=self.admin_token)
+        if error:
+            self.log_result("Enhanced Me (Admin)", False, error)
+            return
+        
+        if response.status_code == 200:
+            data = response.json()
+            user = data.get("user", {})
+            
+            # Check if new fields are present
+            required_fields = ["designation", "department", "phone"]
+            has_new_fields = all(field in user for field in required_fields)
+            
+            if has_new_fields:
+                designation = user.get("designation", "")
+                department = user.get("department", "")
+                phone = user.get("phone", "")
+                self.log_result("Enhanced Me (Admin)", True, f"New fields present - Designation: '{designation}', Department: '{department}', Phone: '{phone}'")
+            else:
+                missing_fields = [field for field in required_fields if field not in user]
+                self.log_result("Enhanced Me (Admin)", False, f"Missing fields: {missing_fields}")
+        else:
+            self.log_result("Enhanced Me (Admin)", False, f"Status: {response.status_code}")
+        
+        # Test team member me endpoint
+        if self.member_token:
+            response, error = self.make_request("GET", "/auth/me", token=self.member_token)
+            if error:
+                self.log_result("Enhanced Me (Team Member)", False, error)
+            elif response.status_code == 200:
+                data = response.json()
+                user = data.get("user", {})
+                
+                required_fields = ["designation", "department", "phone"]
+                has_new_fields = all(field in user for field in required_fields)
+                
+                if has_new_fields:
+                    self.log_result("Enhanced Me (Team Member)", True, "Team member me endpoint includes new profile fields")
+                else:
+                    self.log_result("Enhanced Me (Team Member)", False, "Team member missing new profile fields")
+            else:
+                self.log_result("Enhanced Me (Team Member)", False, f"Status: {response.status_code}")
+    
     def test_clients_crud(self):
         """Test clients CRUD operations"""
         print("\n=== TESTING CLIENTS CRUD ===")
