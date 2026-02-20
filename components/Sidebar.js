@@ -64,9 +64,24 @@ export default function Sidebar({ user, collapsed, toggle, navigate, currentView
           );
         })}
       </nav>
-      <div className="p-3 border-t border-slate-700">
-        <div className={`flex items-center ${collapsed ? 'justify-center' : 'gap-3'}`}>
-          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium ${isSuperAdmin ? 'bg-amber-500' : 'bg-blue-500'}`}>
+      <div className="p-3 border-t border-slate-700 space-y-2">
+        {/* Profile button */}
+        <button 
+          onClick={() => navigate('profile')}
+          className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all
+            ${currentView === 'profile' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}
+            ${collapsed ? 'justify-center' : ''}`}>
+          <UserCircle size={18} />
+          {!collapsed && <span>My Profile</span>}
+        </button>
+        
+        {/* User info */}
+        <div className={`flex items-center ${collapsed ? 'justify-center' : 'gap-3'} pt-2`}>
+          <div 
+            className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium cursor-pointer ${isSuperAdmin ? 'bg-amber-500' : 'bg-blue-500'}`}
+            onClick={() => navigate('profile')}
+            title="View Profile"
+          >
             {user?.name?.charAt(0)?.toUpperCase()}
           </div>
           {!collapsed && (
