@@ -1,0 +1,367 @@
+<analysis>
+
+**original_problem_statement**: The user wants to build a full-stack SaaS application called Digital Marketing Campaign Tracker.
+
+**PRODUCT REQUIREMENTS**:
+- **Core Functionality**: Allow a marketing agency to manage clients and campaigns with financial tracking.
+- **Tenancy Model**:
+    - **Initial**: Single-tenant for one agency.
+    - **Update (In Progress)**: Multi-tenant with a Super Admin role. The Super Admin can create and manage multiple organizations/agencies. They have a global dashboard view with a filter to switch between organizations. Other users (Admin, Team Member) are scoped to their specific organization.
+- **Roles & Permissions**:
+    - **Super Admin**: Manages all organizations.
+    - **Admin**: Manages a single organization, including clients, campaigns, services, and team members. Has full financial visibility for their organization.
+    - **Team Member**: Can only see assigned campaigns and deliverables. Can update the status of their deliverables. Has a Custom Access variant that restricts them to only inputting deliverables.
+- **Financials**:
+    - Currency: BDT (Bangladeshi Taka).
+    - Define services with unit prices (e.g., Static Post = 1,600 BDT).
+    - Campaigns have line items (Service x Quantity x Rate).
+    - Track  (total value of all line items) vs.  (value of completed deliverables).
+- **Deliverables Workflow**:
+    - Statuses: Pending, In Progress, Review, Delivered/Live (managed via a dropdown).
+    - Submitting proof (e.g., a URL) is optional to mark a deliverable as Delivered.
+- **Team Management**: Admins can invite team members, assigning a role, and optionally a Designation and Department.
+- **Audit Logs**: Track create, update, and delete actions for key entities (clients, campaigns, services, team members).
+- **Date Filters**: The dashboard and other relevant views should have date filters (e.g., Today, This Week, This Month).
+- **UI/UX**: Clean SaaS aesthetic using shadcn/ui and Tailwind CSS, with Recharts for data visualization.
+
+**User's preferred language**: English
+
+**what currently exists?**
+A functional single-organization version of the Campaign Tracker was built and tested. It included:
+-   Client, campaign, and service management (CRUD).
+-   Role-based access for 'admin' and 'team_member'.
+-   Financial tracking (Projected vs. Earned Revenue).
+-   An audit log for tracking changes.
+-   Team member creation with custom roles.
+-   Deliverable management with a status dropdown and optional proof submission.
+The backend for this version passed all 31 tests.
+
+**Last working item**:
+    - Last item agent was working: The agent was performing a major refactor to introduce a multi-organization (multi-tenant) architecture with a Super Admin role. This involved rewriting a significant portion of the backend () and frontend () in a single, large  operation.
+    - Status: IN PROGRESS
+    - Agent Testing Done: N
+    - Which testing method agent to use? both
+    - User Testing Done: N
+
+**All Pending/In progress Issue list**:
+  - Issue 1: Application is broken after a major refactor attempt. (Priority: P0)
+
+  Issues Detail:
+  - Issue 1: 
+     - Description: The last user message was Where is my database?, which strongly indicates a critical failure after the agent attempted to rewrite the entire application to support multi-tenancy. The database connection or the data access logic is likely broken.
+     - Attempted fixes: The agent performed a single, large  command to refactor the codebase. This failed.
+     - Next debug checklist:
+       1. Check the backend server logs for errors:  GET /api/dashboard 200 in 48ms
+ GET / 200 in 32ms
+yarn run v1.22.22
+$ NODE_OPTIONS='--max-old-space-size=512' next dev --hostname 0.0.0.0 --port 3000
+  ▲ Next.js 14.2.3
+  - Local:        http://localhost:3000
+  - Network:      http://0.0.0.0:3000
+  - Environments: .env
+
+ ✓ Starting...
+ ✓ Ready in 2.3s
+ ○ Compiling / ...
+Browserslist: browsers data (caniuse-lite) is 8 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+ ✓ Compiled / in 6.1s (1832 modules)
+ GET / 200 in 4541ms
+ ✓ Compiled in 600ms (927 modules)
+ GET / 200 in 23ms
+ GET /?x_request_source=preview 200 in 20ms
+ ○ Compiling /api/[[...path]] ...
+ ✓ Compiled /api/[[...path]] in 749ms (953 modules)
+ GET /api/dashboard/revenue-chart 200 in 1271ms
+ GET /api/dashboard 200 in 1348ms
+ GET /api/dashboard/revenue-chart 200 in 18ms
+ GET /api/dashboard 200 in 23ms
+ GET / 200 in 163ms
+ POST /api/seed 200 in 125ms
+ POST /api/auth/login 200 in 18ms
+ GET /api/dashboard 200 in 25ms
+ GET /api/dashboard/revenue-chart 200 in 8ms
+ GET /api/dashboard 200 in 10ms
+ GET /api/dashboard/revenue-chart 200 in 17ms
+ GET /api/team 200 in 19ms
+ GET /api/team 200 in 13ms
+ POST /api/auth/register 400 in 19ms
+ GET / 200 in 28ms
+yarn run v1.22.22
+$ NODE_OPTIONS='--max-old-space-size=512' next dev --hostname 0.0.0.0 --port 3000
+  ▲ Next.js 14.2.3
+  - Local:        http://localhost:3000
+  - Network:      http://0.0.0.0:3000
+  - Environments: .env
+
+ ✓ Starting...
+ ✓ Ready in 2.7s
+ ○ Compiling / ...
+Browserslist: browsers data (caniuse-lite) is 8 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+ ✓ Compiled / in 5.4s (1832 modules)
+ GET / 200 in 6125ms
+ ✓ Compiled in 703ms (927 modules)
+ GET /?x_request_source=preview 200 in 20ms
+ ○ Compiling /api/[[...path]] ...
+ ✓ Compiled /api/[[...path]] in 680ms (953 modules)
+ GET /api/dashboard/revenue-chart 200 in 1297ms
+ GET /api/dashboard 200 in 1303ms
+ GET /api/dashboard/revenue-chart 200 in 16ms
+ GET /api/dashboard 200 in 13ms
+ GET / 200 in 126ms
+ POST /api/seed 200 in 96ms
+ POST /api/auth/login 200 in 17ms
+ GET /api/dashboard/revenue-chart 200 in 16ms
+ GET /api/dashboard 200 in 23ms
+ GET /api/dashboard/revenue-chart 200 in 8ms
+ GET /api/dashboard 200 in 21ms
+ GET /api/campaigns 200 in 16ms
+ GET /api/campaigns 200 in 18ms
+ GET /api/dashboard/revenue-chart 200 in 19ms
+ GET /api/dashboard 200 in 24ms
+ GET /api/dashboard/revenue-chart 200 in 19ms
+ GET /api/dashboard 200 in 37ms
+ GET /api/clients 200 in 19ms
+ GET /api/clients 200 in 33ms
+ GET /api/campaigns 200 in 15ms
+ GET /api/campaigns 200 in 16ms
+ GET /api/services 200 in 21ms
+ GET /api/clients 200 in 21ms
+ GET /api/team 200 in 22ms
+ GET /api/clients 200 in 17ms
+ GET /api/team 200 in 19ms
+ GET /api/services 200 in 9ms
+ GET /api/services 200 in 14ms
+ GET /api/services 200 in 15ms
+ GET /api/team 200 in 18ms
+ GET /api/team 200 in 26ms
+ GET /api/activity-logs?limit=200 200 in 14ms
+ GET /api/activity-logs?limit=200 200 in 15ms
+ GET /api/team 200 in 16ms
+ GET /api/team 200 in 15ms
+yarn run v1.22.22
+$ NODE_OPTIONS='--max-old-space-size=512' next dev --hostname 0.0.0.0 --port 3000
+  ▲ Next.js 14.2.3
+  - Local:        http://localhost:3000
+  - Network:      http://0.0.0.0:3000
+  - Environments: .env
+
+ ✓ Starting...
+ ✓ Ready in 3.2s. Look for database connection errors, authentication issues, or crashes in the request handler.
+       2. Review the newly written backend code in . Specifically, inspect the MongoDB connection logic and how the new  is being used to query data.
+       3. Verify that environment variables like  are still being accessed correctly.
+       4. If logs are unhelpful, simplify the code by commenting out the new multi-tenancy logic to see if the basic database connection can be re-established. Then, re-introduce the logic piece by piece.
+     - Why fix this issue and what will be achieved with the fix? This is a critical blocker. Fixing it will stabilize the application and allow the development of the multi-tenancy feature to proceed.
+     - Status:  IN PROGRESS
+     - Is recurring issue? N
+     - Should Test frontend/backend/both after fix? both
+     - Blocked on other issue: None. This is the primary blocker.
+
+**In progress Task List**:
+  - Task 1: Complete the Multi-Organization and Super Admin feature implementation. (Priority: P0)
+
+ Task Detail:
+  - Task 1: 
+     - Where to resume: The task is blocked by Issue 1. After debugging and fixing the broken state of the application, the agent needs to systematically verify and complete the refactor. This involves:
+        1. Ensuring all API endpoints correctly handle the  scoping for all roles (Super Admin, Admin, Team Member).
+        2. Implementing the frontend  component.
+        3. Integrating the organization switcher into the main dashboard and ensuring it filters all data correctly.
+        4. Implementing and testing the new date filter components.
+     - What will be achieved with this? The application will be transformed from a single-tenant to a multi-tenant SaaS platform, fulfilling a major user requirement.
+     - Status:  IN PROGRESS
+     - Should Test frontend/backend/both after fix? both
+     - Blocked on something: Issue 1: Application is broken.
+
+**Upcoming and Future Tasks**
+  - There are no other future tasks requested. The current focus is entirely on completing the multi-tenancy refactor.
+
+**Completed work in this session**
+- List of all completed tasks with file and method name:
+  - Initial application build with single-tenant architecture.
+  - Team Management: Implemented logic to invite team members with roles ('Admin', 'Custom Access'), designation, and department in .
+  - Audit Log: Added  collection and endpoints. Integrated logging into CRUD operations for campaigns, services, and clients.
+  - CRUD Enhancements: Enabled modify/delete options for admins and modified campaign/service update logic in .
+  - Deliverable Workflow Update: Changed status to a dropdown and made the proof link optional in the frontend components within .
+
+- Recently completed:
+  - All enhancements for the single-organization version were completed and tested on the backend.
+
+**Earlier issues found/mentioned but not fixed**
+   - None. All previous user feedback was addressed before the multi-tenancy request.
+
+**Known issue recurrence from previous fork**
+  - None.
+
+**Code Architecture**
+
+*(Note: The user's requested file structure with directories like , , ,  was not strictly followed; the agent opted to build a single-file monolith for the frontend () and backend () for rapid development, which is now being refactored.)*
+
+**Key Technical Concepts**
+-   **Frontend**: Next.js 14 (App Router), React, Tailwind CSS, shadcn/ui, Recharts.
+-   **Backend**: Next.js API Routes, Node.js.
+-   **Database**: MongoDB.
+-   **Architecture**: Full-stack Next.js application. Currently being refactored from single-tenant to multi-tenant.
+-   **Authentication**: Custom JWT-based logic (inferred from handlers).
+
+**key DB schema**
+-   : {, , } (Newly added for multi-tenancy)
+-   : {, , , , , , }
+-   : {, , , ...}
+-   : {, , , , ...}
+-   : {, , , }
+-   : {, , , , , ...}
+-   : {, , , , , , ...}
+
+**changes in tech stack**
+- The initial problem statement specified **Supabase**, but the user explicitly requested **MongoDB** (Chat Message 7), and the agent has proceeded with MongoDB. This is a critical deviation.
+
+**All files of reference**
+-   : The entire backend logic resides here. It was completely rewritten to add multi-tenancy logic and is likely the source of the current error.
+-   : The entire frontend UI resides here. It was completely rewritten to add components for organization switching and date filters.
+-   : Handles the connection to MongoDB. This file should be checked as part of debugging.
+
+**Areas that need refactoring**:
+- The entire application is in a state of refactoring. The monolithic approach of putting all backend logic in one file () and all frontend components in another () is becoming unmanageable, especially with the added complexity of multi-tenancy. The agent who picks this up should consider breaking down the code into the folder structure originally requested by the user after stabilizing the application.
+
+**key api endpoints**
+- All endpoints are dynamically handled within .
+- Key entities with CRUD operations: , , , , .
+- New endpoints for multi-tenancy: .
+- Utility endpoints: , , .
+
+**Critical Info for New Agent**
+- **The application is currently broken.** The last user message was Where is my database?. Your first priority is to debug this. Start by checking the supervisor logs:  GET /api/dashboard 200 in 48ms
+ GET / 200 in 32ms
+yarn run v1.22.22
+$ NODE_OPTIONS='--max-old-space-size=512' next dev --hostname 0.0.0.0 --port 3000
+  ▲ Next.js 14.2.3
+  - Local:        http://localhost:3000
+  - Network:      http://0.0.0.0:3000
+  - Environments: .env
+
+ ✓ Starting...
+ ✓ Ready in 2.3s
+ ○ Compiling / ...
+Browserslist: browsers data (caniuse-lite) is 8 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+ ✓ Compiled / in 6.1s (1832 modules)
+ GET / 200 in 4541ms
+ ✓ Compiled in 600ms (927 modules)
+ GET / 200 in 23ms
+ GET /?x_request_source=preview 200 in 20ms
+ ○ Compiling /api/[[...path]] ...
+ ✓ Compiled /api/[[...path]] in 749ms (953 modules)
+ GET /api/dashboard/revenue-chart 200 in 1271ms
+ GET /api/dashboard 200 in 1348ms
+ GET /api/dashboard/revenue-chart 200 in 18ms
+ GET /api/dashboard 200 in 23ms
+ GET / 200 in 163ms
+ POST /api/seed 200 in 125ms
+ POST /api/auth/login 200 in 18ms
+ GET /api/dashboard 200 in 25ms
+ GET /api/dashboard/revenue-chart 200 in 8ms
+ GET /api/dashboard 200 in 10ms
+ GET /api/dashboard/revenue-chart 200 in 17ms
+ GET /api/team 200 in 19ms
+ GET /api/team 200 in 13ms
+ POST /api/auth/register 400 in 19ms
+ GET / 200 in 28ms
+yarn run v1.22.22
+$ NODE_OPTIONS='--max-old-space-size=512' next dev --hostname 0.0.0.0 --port 3000
+  ▲ Next.js 14.2.3
+  - Local:        http://localhost:3000
+  - Network:      http://0.0.0.0:3000
+  - Environments: .env
+
+ ✓ Starting...
+ ✓ Ready in 2.7s
+ ○ Compiling / ...
+Browserslist: browsers data (caniuse-lite) is 8 months old. Please run:
+  npx update-browserslist-db@latest
+  Why you should do it regularly: https://github.com/browserslist/update-db#readme
+ ✓ Compiled / in 5.4s (1832 modules)
+ GET / 200 in 6125ms
+ ✓ Compiled in 703ms (927 modules)
+ GET /?x_request_source=preview 200 in 20ms
+ ○ Compiling /api/[[...path]] ...
+ ✓ Compiled /api/[[...path]] in 680ms (953 modules)
+ GET /api/dashboard/revenue-chart 200 in 1297ms
+ GET /api/dashboard 200 in 1303ms
+ GET /api/dashboard/revenue-chart 200 in 16ms
+ GET /api/dashboard 200 in 13ms
+ GET / 200 in 126ms
+ POST /api/seed 200 in 96ms
+ POST /api/auth/login 200 in 17ms
+ GET /api/dashboard/revenue-chart 200 in 16ms
+ GET /api/dashboard 200 in 23ms
+ GET /api/dashboard/revenue-chart 200 in 8ms
+ GET /api/dashboard 200 in 21ms
+ GET /api/campaigns 200 in 16ms
+ GET /api/campaigns 200 in 18ms
+ GET /api/dashboard/revenue-chart 200 in 19ms
+ GET /api/dashboard 200 in 24ms
+ GET /api/dashboard/revenue-chart 200 in 19ms
+ GET /api/dashboard 200 in 37ms
+ GET /api/clients 200 in 19ms
+ GET /api/clients 200 in 33ms
+ GET /api/campaigns 200 in 15ms
+ GET /api/campaigns 200 in 16ms
+ GET /api/services 200 in 21ms
+ GET /api/clients 200 in 21ms
+ GET /api/team 200 in 22ms
+ GET /api/clients 200 in 17ms
+ GET /api/team 200 in 19ms
+ GET /api/services 200 in 9ms
+ GET /api/services 200 in 14ms
+ GET /api/services 200 in 15ms
+ GET /api/team 200 in 18ms
+ GET /api/team 200 in 26ms
+ GET /api/activity-logs?limit=200 200 in 14ms
+ GET /api/activity-logs?limit=200 200 in 15ms
+ GET /api/team 200 in 16ms
+ GET /api/team 200 in 15ms
+yarn run v1.22.22
+$ NODE_OPTIONS='--max-old-space-size=512' next dev --hostname 0.0.0.0 --port 3000
+  ▲ Next.js 14.2.3
+  - Local:        http://localhost:3000
+  - Network:      http://0.0.0.0:3000
+  - Environments: .env
+
+ ✓ Starting...
+ ✓ Ready in 3.2s.
+- The failure happened immediately after a massive  command that attempted to refactor the entire app for multi-tenancy. This approach was very risky.
+- The tech stack uses **MongoDB**, not Supabase, per the user's request. Ensure all database logic is compatible with MongoDB.
+- The goal of the refactor is to introduce an  collection and scope almost all other data to an . A  role should be able to view data from all organizations.
+
+**documents created in this job**
+- None.
+
+**Last 10 User Messages and any pending HUMAN messages** 
+ 1. ****: PENDING. User is reporting a critical error after the agent's last action. The app is not working.
+ 2. ****: This was the feature request that triggered the major refactor. It details the requirements for multi-tenancy, a Super Admin role, and date filters.
+ 3. ****: Repeated message.
+ 4. ****: This was a feature request for several enhancements: custom team member roles, audit logs, delete/modify options, and deliverable workflow changes. This set of features was successfully implemented and tested before the multi-tenancy work began.
+
+**Project Health Check:**
+-   **Broken**: The application is non-functional after the latest code change. The user has reported a critical failure (Where is my database?).
+
+**3rd Party Integrations**
+- None.
+
+**Testing status**
+  - Testing agent used after significant changes: YES, the backend was tested successfully for the single-tenant version.
+  - Troubleshoot agent used after agent stuck in loop: NO
+  - Test files created: None. The  agent was used.
+  - Known regressions: The entire application is currently considered a regression due to the failed refactor.
+
+**Credentials to test flow:**
+The agent created a seed script to populate the database with demo users. The credentials are likely  and  with a password like , but this should be confirmed by reviewing the seed logic in .
+
+**What agent forgot to execute**
+The agent did not forget to execute a task, but it chose a high-risk implementation strategy (rewriting the entire application at once) and failed to verify the result. The next logical step would have been to check the logs or run a simple test, but the job ended before that, leaving the application in a broken state for the user.
+
+</analysis>

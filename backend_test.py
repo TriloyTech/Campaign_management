@@ -10,7 +10,7 @@ import time
 from datetime import datetime
 
 # Configuration
-BASE_URL = "https://marketing-pulse-40.preview.emergentagent.com/api"
+BASE_URL = "https://campaign-tracker-71.preview.emergentagent.com/api"
 
 class CampaignTrackerTester:
     def __init__(self):
