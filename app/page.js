@@ -128,6 +128,10 @@ export default function App() {
     navigate('login');
   };
 
+  const handleUserUpdate = (updatedUser) => {
+    setUser(updatedUser);
+  };
+
   if (loading) return <div className="min-h-screen flex items-center justify-center"><Loader2 className="animate-spin text-blue-600" size={32} /></div>;
   if (!user) return <AuthViews onLogin={login} onRegister={register} currentView={currentView} navigate={navigate} />;
 
