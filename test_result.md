@@ -105,6 +105,51 @@
 user_problem_statement: "Digital Marketing Campaign Tracker with Unit-Based Revenue Tracking - MongoDB, BDT currency, custom auth"
 
 backend:
+  - task: "User Profile Update (PUT /api/auth/profile)"
+    implemented: true
+    working: true
+    file: "/app/app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "PUT /api/auth/profile - updates name, email, designation, department, phone. Returns updated user and new token. Email uniqueness validated."
+      - working: true
+        agent: "testing"
+        comment: "✅ PASSED - Profile update works perfectly. Admin and team_member can update name, designation, department, phone. Email change works with uniqueness validation. Duplicate email correctly rejected with 400 error. New token returned on successful update."
+
+  - task: "Password Change (PUT /api/auth/password)"
+    implemented: true
+    working: true
+    file: "/app/app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "PUT /api/auth/password - changes password with current password validation. Minimum 6 chars required."
+      - working: true
+        agent: "testing"
+        comment: "✅ PASSED - Password change fully functional. Validates current password, enforces 6+ character minimum, works for both admin and team_member. Login with new password confirmed working. Incorrect current password correctly rejected with 401. Short passwords rejected with 400."
+
+  - task: "Enhanced GET /api/auth/me"
+    implemented: true
+    working: true
+    file: "/app/app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: "NA"
+        agent: "main"
+        comment: "GET /api/auth/me - now includes designation, department, phone fields in user response"
+      - working: true
+        agent: "testing"
+        comment: "✅ PASSED - Enhanced me endpoint working correctly. Returns all new profile fields (designation, department, phone) for both admin and team_member users. Fields default to empty strings if not set."
+
   - task: "Auth - Register new user with organization"
     implemented: true
     working: true
