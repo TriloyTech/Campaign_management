@@ -951,6 +951,15 @@ class CampaignTrackerTester:
         self.test_auth_me()
         time.sleep(1)
         
+        self.test_profile_update()
+        time.sleep(1)
+        
+        self.test_password_change()
+        time.sleep(1)
+        
+        self.test_enhanced_me_endpoint()
+        time.sleep(1)
+        
         self.test_clients_crud()
         time.sleep(1)
         
