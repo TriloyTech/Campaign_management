@@ -130,7 +130,58 @@ async function handleAuth(request, action, method) {
     const dbUser = await db.collection('users').findOne({ id: user.id });
     if (!dbUser) return json({ error: 'User not found' }, 404);
     const org = await db.collection('organizations').findOne({ id: dbUser.organizationId });
-    return json({ user: { id: dbUser.id, email: dbUser.email, name: dbUser.name, role: dbUser.role, organizationId: dbUser.organizationId, organizationName: org?.name } });
+    return json({ user: { 
+      id: dbUser.id, email: dbUser.email, name: dbUser.name, role: dbUser.role, 
+      organizationId: dbUser.organizationId, organizationName: org?.name,
+      designation: dbUser.designation || '', department: dbUser.department || '',
+      phone: dbUser.phone || '', createdAt: dbUser.createdAt
+    }});
+  }
+  // Update profile
+  if (method === 'PUT' && action === 'profile') {
+    const user = getUser(request);
+    if (!user) return json({ error: 'Unauthorized' }, 401);
+    const db = await getDb();
+    const data = await request.json();
+    const updateFields = { updatedAt: new Date() };
+    if (data.name !== undefined) updateFields.name = data.name;
+    if (data.designation !== undefined) updateFields.designation = data.designation;
+    if (data.department !== undefined) updateFields.department = data.department;
+    if (data.phone !== undefined) updateFields.phone = data.phone;
+    // Email change requires uniqueness check
+    if (data.email !== undefined && data.email !== user.email) {
+      const existing = await db.collection('users').findOne({ email: data.email });
+      if (existing) return json({ error: 'Email already in use' }, 400);
+      updateFields.email = data.email;
+    }
+    await db.collection('users').updateOne({ id: user.id }, { $set: updateFields });
+    const dbUser = await db.collection('users').findOne({ id: user.id });
+    const org = await db.collection('organizations').findOne({ id: dbUser.organizationId });
+    // Generate new token if email changed
+    const token = createToken({ id: dbUser.id, email: dbUser.email, name: dbUser.name, role: dbUser.role, organizationId: dbUser.organizationId });
+    return json({ 
+      token, 
+      user: { 
+        id: dbUser.id, email: dbUser.email, name: dbUser.name, role: dbUser.role, 
+        organizationId: dbUser.organizationId, organizationName: org?.name,
+        designation: dbUser.designation || '', department: dbUser.department || '',
+        phone: dbUser.phone || ''
+      }
+    });
+  }
+  // Change password
+  if (method === 'PUT' && action === 'password') {
+    const user = getUser(request);
+    if (!user) return json({ error: 'Unauthorized' }, 401);
+    const db = await getDb();
+    const { currentPassword, newPassword } = await request.json();
+    if (!currentPassword || !newPassword) return json({ error: 'Current and new password required' }, 400);
+    if (newPassword.length < 6) return json({ error: 'New password must be at least 6 characters' }, 400);
+    const dbUser = await db.collection('users').findOne({ id: user.id });
+    if (!dbUser) return json({ error: 'User not found' }, 404);
+    if (!verifyPassword(currentPassword, dbUser.password)) return json({ error: 'Current password is incorrect' }, 401);
+    await db.collection('users').updateOne({ id: user.id }, { $set: { password: hashPassword(newPassword), updatedAt: new Date() } });
+    return json({ success: true, message: 'Password updated successfully' });
   }
   return json({ error: 'Not found' }, 404);
 }
