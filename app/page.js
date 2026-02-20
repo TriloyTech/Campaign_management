@@ -69,14 +69,7 @@ export default function App() {
   const handleOrgChange = (orgId) => {
     setSelectedOrgId(orgId);
     setApiContext(orgId, 'super_admin');
-    // Force re-render of current view by navigating
-    const current = window.location.hash.slice(1) || 'dashboard';
-    setCurrentView('');
-    setTimeout(() => {
-      const parts = current.split('/');
-      setCurrentView(parts[0]);
-      setViewParams({ id: parts[1], sub: parts[2] });
-    }, 50);
+    // Views will auto-refresh due to key change
   };
 
   useEffect(() => {
