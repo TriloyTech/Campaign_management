@@ -92,7 +92,7 @@ export default function CampaignDetail({ campaignId, user, navigate }) {
           </div>
           <p className="text-muted-foreground">{campaign.clientName}</p>
         </div>
-        {isAdmin && (
+        {canEditCampaign && (
           <Select value={campaign.status} onValueChange={async (v) => {
             try {
               await apiFetch('PUT', `campaigns/${campaign.id}`, { status: v });
