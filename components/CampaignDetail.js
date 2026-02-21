@@ -147,7 +147,7 @@ export default function CampaignDetail({ campaignId, user, navigate }) {
       )}
 
       {/* Line Items Summary */}
-      {isAdmin && lineItems.length > 0 && (
+      {canViewFinancials && lineItems.length > 0 && (
         <Card className="border-0 shadow-sm">
           <CardHeader>
             <CardTitle className="text-base">Scope of Work</CardTitle>
