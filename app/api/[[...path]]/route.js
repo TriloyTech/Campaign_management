@@ -512,7 +512,7 @@ async function handleDashboard(request, subPath, method) {
     if (orgId) filter.organizationId = orgId;
     else if (user.role !== 'super_admin') filter.organizationId = user.organizationId;
     Object.assign(filter, dateFilter);
-    const campaigns = await db.collection('campaigns').find(filter).toArray();
+    const campaigns = await db.collection('campaigns').find(filter).limit(1000).toArray();
     const monthlyData = {};
     for (const c of campaigns) {
       const month = new Date(c.createdAt).toISOString().slice(0, 7);
