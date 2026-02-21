@@ -384,7 +384,7 @@ async function handleCampaigns(request, id, method) {
     if (clientId) filter.clientId = clientId;
     if (type) filter.type = type;
     Object.assign(filter, dateFilter);
-    const campaigns = await db.collection('campaigns').find(filter).sort({ createdAt: -1 }).toArray();
+    const campaigns = await db.collection('campaigns').find(filter).sort({ createdAt: -1 }).limit(200).toArray();
     return json({ campaigns });
   }
 
