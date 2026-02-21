@@ -473,7 +473,7 @@ async function handleDeliverables(request, id, method) {
     let filter = {};
     if (campaignId) filter.campaignId = campaignId;
     if (user.role === 'team_member') filter.assignedTo = user.id;
-    const deliverables = await db.collection('deliverables').find(filter).sort({ serviceName: 1, unitIndex: 1 }).toArray();
+    const deliverables = await db.collection('deliverables').find(filter).sort({ serviceName: 1, unitIndex: 1 }).limit(500).toArray();
     return json({ deliverables });
   }
 
