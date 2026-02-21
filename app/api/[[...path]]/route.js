@@ -215,7 +215,7 @@ async function handleOrganizations(request, id, method) {
 
   if (method === 'GET' && !id) {
     if (user.role === 'super_admin') {
-      const orgs = await db.collection('organizations').find({}).sort({ createdAt: -1 }).toArray();
+      const orgs = await db.collection('organizations').find({}).sort({ createdAt: -1 }).limit(100).toArray();
       return json({ organizations: orgs });
     }
     const org = await db.collection('organizations').findOne({ id: user.organizationId });
