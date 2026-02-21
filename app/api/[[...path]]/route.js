@@ -47,6 +47,9 @@ function verifyPassword(password, storedHash) {
 }
 
 function createToken(payload) {
+  if (!JWT_SECRET) {
+    throw new Error('JWT_SECRET is not configured');
+  }
   const data = JSON.stringify({ ...payload, iat: Date.now(), exp: Date.now() + 7 * 24 * 60 * 60 * 1000 });
   const encoded = Buffer.from(data).toString('base64url');
   const signature = crypto.createHmac('sha256', JWT_SECRET).update(encoded).digest('base64url');
@@ -54,6 +57,10 @@ function createToken(payload) {
 }
 
 function verifyToken(token) {
+  if (!JWT_SECRET) {
+    console.error('JWT_SECRET is not configured');
+    return null;
+  }
   try {
     const [encoded, signature] = token.split('.');
     const expectedSig = crypto.createHmac('sha256', JWT_SECRET).update(encoded).digest('base64url');
