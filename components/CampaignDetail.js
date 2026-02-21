@@ -68,7 +68,8 @@ export default function CampaignDetail({ campaignId, user, navigate }) {
   if (!campaign) return <div className="text-center py-10 text-muted-foreground">Campaign not found</div>;
 
   const pct = campaign.totalProjected > 0 ? Math.round((campaign.totalEarned / campaign.totalProjected) * 100) : 0;
-  const isAdmin = user.role === 'admin';
+  const canViewFinancials = user.role === 'admin' || user.role === 'super_admin';
+  const canEditCampaign = user.role === 'admin' || user.role === 'super_admin';
 
   // Group deliverables by service
   const grouped = {};
