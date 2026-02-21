@@ -5,7 +5,7 @@ import crypto from 'crypto';
 
 const MONGO_URL = process.env.MONGO_URL;
 const DB_NAME = process.env.DB_NAME || 'campaign_tracker';
-const JWT_SECRET = 'dmc-tracker-jwt-secret-2024-key';
+const JWT_SECRET = process.env.JWT_SECRET || 'dmc-tracker-jwt-secret-2024-fallback';
 
 let cachedClient = null;
 let cachedDb = null;
