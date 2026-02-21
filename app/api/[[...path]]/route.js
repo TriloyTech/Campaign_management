@@ -4,13 +4,27 @@ import { NextResponse } from 'next/server';
 import crypto from 'crypto';
 
 const MONGO_URL = process.env.MONGO_URL;
-const DB_NAME = process.env.DB_NAME || 'campaign_tracker';
-const JWT_SECRET = process.env.JWT_SECRET || 'dmc-tracker-jwt-secret-2024-fallback';
+const DB_NAME = process.env.DB_NAME;
+const JWT_SECRET = process.env.JWT_SECRET;
+
+// Validate required environment variables
+if (!MONGO_URL) {
+  console.error('FATAL: MONGO_URL environment variable is not set');
+}
+if (!DB_NAME) {
+  console.error('FATAL: DB_NAME environment variable is not set');
+}
+if (!JWT_SECRET) {
+  console.error('FATAL: JWT_SECRET environment variable is not set');
+}
 
 let cachedClient = null;
 let cachedDb = null;
 
 async function getDb() {
+  if (!MONGO_URL || !DB_NAME) {
+    throw new Error('Database configuration missing. Check MONGO_URL and DB_NAME environment variables.');
+  }
   if (cachedDb) return cachedDb;
   if (!cachedClient) {
     cachedClient = new MongoClient(MONGO_URL);
