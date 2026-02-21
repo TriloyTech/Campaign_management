@@ -529,7 +529,7 @@ async function handleDashboard(request, subPath, method) {
   else if (user.role !== 'super_admin') campaignFilter.organizationId = user.organizationId;
   if (user.role === 'team_member') campaignFilter.assignedTo = user.id;
   Object.assign(campaignFilter, dateFilter);
-  const campaigns = await db.collection('campaigns').find(campaignFilter).toArray();
+  const campaigns = await db.collection('campaigns').find(campaignFilter).limit(500).toArray();
   const activeCampaigns = campaigns.filter(c => c.status === 'active');
 
   let financials = null;
