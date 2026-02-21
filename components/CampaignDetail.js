@@ -213,7 +213,7 @@ export default function CampaignDetail({ campaignId, user, navigate }) {
                       <Link2 size={14} />
                     </button>
 
-                    {isAdmin && <span className="text-sm text-muted-foreground">{formatBDT(d.rate)}</span>}
+                    {canViewFinancials && <span className="text-sm text-muted-foreground">{formatBDT(d.rate)}</span>}
 
                     {/* Status dropdown */}
                     <Select value={d.status} onValueChange={(newStatus) => updateStatus(d, newStatus)}>
