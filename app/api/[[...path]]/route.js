@@ -553,7 +553,7 @@ async function handleDashboard(request, subPath, method) {
   const campaignIds = campaigns.map(c => c.id);
   let deliverableFilter = { campaignId: { $in: campaignIds } };
   if (user.role === 'team_member') deliverableFilter.assignedTo = user.id;
-  const deliverables = await db.collection('deliverables').find(deliverableFilter).toArray();
+  const deliverables = await db.collection('deliverables').find(deliverableFilter).limit(1000).toArray();
   const deliverableStats = {
     total: deliverables.length,
     pending: deliverables.filter(d => d.status === 'pending').length,
