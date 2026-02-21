@@ -267,7 +267,7 @@ async function handleClients(request, id, method) {
 
   if (method === 'GET' && !id) {
     const filter = orgId ? { organizationId: orgId } : {};
-    const clients = await db.collection('clients').find(filter).sort({ createdAt: -1 }).toArray();
+    const clients = await db.collection('clients').find(filter).sort({ createdAt: -1 }).limit(200).toArray();
     return json({ clients });
   }
   if (method === 'GET' && id) {
