@@ -391,8 +391,8 @@ async function handleCampaigns(request, id, method) {
   if (method === 'GET' && id) {
     const campaign = await db.collection('campaigns').findOne({ id });
     if (!campaign) return json({ error: 'Campaign not found' }, 404);
-    const lineItems = await db.collection('line_items').find({ campaignId: id }).toArray();
-    const deliverables = await db.collection('deliverables').find({ campaignId: id }).sort({ serviceName: 1, unitIndex: 1 }).toArray();
+    const lineItems = await db.collection('line_items').find({ campaignId: id }).limit(100).toArray();
+    const deliverables = await db.collection('deliverables').find({ campaignId: id }).sort({ serviceName: 1, unitIndex: 1 }).limit(500).toArray();
     const client = await db.collection('clients').findOne({ id: campaign.clientId });
     return json({ campaign, lineItems, deliverables, client });
   }
