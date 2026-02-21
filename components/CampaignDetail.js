@@ -112,7 +112,7 @@ export default function CampaignDetail({ campaignId, user, navigate }) {
 
       {/* Campaign Info */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-        {isAdmin && (
+        {canViewFinancials && (
           <Card className="border-0 shadow-sm">
             <CardContent className="pt-6">
               <p className="text-sm text-muted-foreground">Projected Revenue</p>
@@ -120,10 +120,10 @@ export default function CampaignDetail({ campaignId, user, navigate }) {
             </CardContent>
           </Card>
         )}
-        {isAdmin && (
+        {canViewFinancials && (
           <Card className="border-0 shadow-sm">
             <CardContent className="pt-6">
-              <p className="text-sm text-muted-foreground">Earned Revenue</p>
+              <p className="text-sm text-muted-foreground">Confirmed Revenue</p>
               <p className="text-2xl font-bold text-emerald-600">{formatBDT(campaign.totalEarned)}</p>
             </CardContent>
           </Card>
