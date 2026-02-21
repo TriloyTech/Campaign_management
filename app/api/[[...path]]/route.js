@@ -326,7 +326,7 @@ async function handleServices(request, id, method) {
 
   if (method === 'GET' && !id) {
     const filter = orgId ? { organizationId: orgId } : {};
-    const services = await db.collection('service_catalog').find(filter).sort({ createdAt: -1 }).toArray();
+    const services = await db.collection('service_catalog').find(filter).sort({ createdAt: -1 }).limit(200).toArray();
     return json({ services });
   }
   if (method === 'POST') {
