@@ -583,7 +583,7 @@ async function handleTeam(request, action, method) {
     } else {
       filter.organizationId = user.organizationId;
     }
-    const members = await db.collection('users').find(filter, { projection: { password: 0 } }).toArray();
+    const members = await db.collection('users').find(filter, { projection: { password: 0 } }).limit(200).toArray();
     return json({ members });
   }
   if (method === 'POST' && action === 'invite') {
