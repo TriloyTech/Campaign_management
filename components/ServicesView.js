@@ -104,7 +104,7 @@ export default function ServicesView({ user }) {
                   <div className="w-10 h-10 bg-indigo-100 rounded-lg flex items-center justify-center">
                     <Package className="text-indigo-600" size={20} />
                   </div>
-                  {user.role === 'admin' && (
+                  {canManageServices && (
                     <div className="flex gap-1">
                       <button onClick={() => handleEdit(svc)} className="p-1.5 rounded hover:bg-muted"><Pencil size={14} /></button>
                       <button onClick={() => handleDelete(svc.id)} className="p-1.5 rounded hover:bg-red-50 text-red-500"><Trash2 size={14} /></button>
