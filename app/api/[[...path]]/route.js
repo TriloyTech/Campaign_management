@@ -570,7 +570,7 @@ async function handleDashboard(request, subPath, method) {
 }
 
 // ============ TEAM ============
-async function handleTeam(request, action, method) {
+async function handleTeam(request, id, subResource, method) {
   const user = getUser(request);
   if (!user) return json({ error: 'Unauthorized' }, 401);
   const db = await getDb();
@@ -586,7 +586,7 @@ async function handleTeam(request, action, method) {
     const members = await db.collection('users').find(filter, { projection: { password: 0 } }).limit(200).toArray();
     return json({ members });
   }
-  if (method === 'POST' && action === 'invite') {
+  if (method === 'POST' && id === 'invite') {
     if (user.role === 'team_member') return json({ error: 'Not authorized' }, 403);
     const data = await request.json();
     if (!data.email || !data.name || !data.password) return json({ error: 'Email, name, and password required' }, 400);
@@ -605,7 +605,7 @@ async function handleTeam(request, action, method) {
   }
 
   // Update team member
-  if (method === 'PUT' && id && action !== 'password') {
+  if (method === 'PUT' && id && subResource !== 'password') {
     if (user.role === 'team_member') return json({ error: 'Not authorized' }, 403);
     const member = await db.collection('users').findOne({ id });
     if (!member) return json({ error: 'Member not found' }, 404);
@@ -630,7 +630,7 @@ async function handleTeam(request, action, method) {
   }
 
   // Reset team member password
-  if (method === 'PUT' && id && action === 'password') {
+  if (method === 'PUT' && id && subResource === 'password') {
     if (user.role === 'team_member') return json({ error: 'Not authorized' }, 403);
     const member = await db.collection('users').findOne({ id });
     if (!member) return json({ error: 'Member not found' }, 404);
