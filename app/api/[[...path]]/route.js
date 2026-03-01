@@ -835,7 +835,7 @@ async function handleRequest(request, pathSegments, method) {
       case 'campaigns': return await handleCampaigns(request, id, method);
       case 'deliverables': return await handleDeliverables(request, id, method);
       case 'dashboard': return await handleDashboard(request, id, method);
-      case 'team': return await handleTeam(request, id, method);
+      case 'team': return await handleTeam(request, id, subResource, method);
       case 'activity-logs': return await handleActivityLogs(request, method);
       case 'seed': return await handleSeed(request, method);
       default: return json({ status: 'Campaign Tracker API running', version: '2.0' });
