@@ -603,6 +603,72 @@ async function handleTeam(request, action, method) {
     await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: targetOrg, userId: user.id, userName: user.name, action: 'created', entityType: 'team_member', entityId: member.id, details: `Added team member "${member.name}" as ${memberRole}`, createdAt: new Date() });
     return json({ member: { id: member.id, email: member.email, name: member.name, role: member.role, designation: member.designation, department: member.department, organizationId: member.organizationId } }, 201);
   }
+
+  // Update team member
+  if (method === 'PUT' && id && action !== 'password') {
+    if (user.role === 'team_member') return json({ error: 'Not authorized' }, 403);
+    const member = await db.collection('users').findOne({ id });
+    if (!member) return json({ error: 'Member not found' }, 404);
+    
+    // Admins can only edit members in their org (not super_admins)
+    if (user.role === 'admin') {
+      if (member.organizationId !== user.organizationId) return json({ error: 'Not authorized' }, 403);
+      if (member.role === 'super_admin') return json({ error: 'Cannot edit super admin' }, 403);
+    }
+    
+    const data = await request.json();
+    const updateFields = { updatedAt: new Date() };
+    if (data.name !== undefined) updateFields.name = data.name;
+    if (data.email !== undefined) updateFields.email = data.email;
+    if (data.role !== undefined && (user.role === 'super_admin' || data.role !== 'super_admin')) updateFields.role = data.role;
+    if (data.designation !== undefined) updateFields.designation = data.designation;
+    if (data.department !== undefined) updateFields.department = data.department;
+    
+    await db.collection('users').updateOne({ id }, { $set: updateFields });
+    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: member.organizationId, userId: user.id, userName: user.name, action: 'modified', entityType: 'team_member', entityId: id, details: `Updated team member "${data.name || member.name}"`, createdAt: new Date() });
+    return json({ success: true, message: 'Member updated' });
+  }
+
+  // Reset team member password
+  if (method === 'PUT' && id && action === 'password') {
+    if (user.role === 'team_member') return json({ error: 'Not authorized' }, 403);
+    const member = await db.collection('users').findOne({ id });
+    if (!member) return json({ error: 'Member not found' }, 404);
+    
+    // Admins can only reset passwords for members in their org (not super_admins)
+    if (user.role === 'admin') {
+      if (member.organizationId !== user.organizationId) return json({ error: 'Not authorized' }, 403);
+      if (member.role === 'super_admin') return json({ error: 'Cannot reset super admin password' }, 403);
+    }
+    
+    const data = await request.json();
+    if (!data.password || data.password.length < 6) return json({ error: 'Password must be at least 6 characters' }, 400);
+    
+    await db.collection('users').updateOne({ id }, { $set: { password: hashPassword(data.password), updatedAt: new Date() } });
+    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: member.organizationId, userId: user.id, userName: user.name, action: 'modified', entityType: 'team_member', entityId: id, details: `Reset password for "${member.name}"`, createdAt: new Date() });
+    return json({ success: true, message: 'Password reset successfully' });
+  }
+
+  // Delete team member
+  if (method === 'DELETE' && id) {
+    if (user.role === 'team_member') return json({ error: 'Not authorized' }, 403);
+    const member = await db.collection('users').findOne({ id });
+    if (!member) return json({ error: 'Member not found' }, 404);
+    
+    // Cannot delete yourself
+    if (member.id === user.id) return json({ error: 'Cannot delete yourself' }, 400);
+    
+    // Admins can only delete members in their org (not super_admins)
+    if (user.role === 'admin') {
+      if (member.organizationId !== user.organizationId) return json({ error: 'Not authorized' }, 403);
+      if (member.role === 'super_admin') return json({ error: 'Cannot delete super admin' }, 403);
+    }
+    
+    await db.collection('users').deleteOne({ id });
+    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: member.organizationId, userId: user.id, userName: user.name, action: 'deleted', entityType: 'team_member', entityId: id, details: `Deleted team member "${member.name}"`, createdAt: new Date() });
+    return json({ success: true, message: 'Member deleted' });
+  }
+
   return json({ error: 'Not found' }, 404);
 }
 
