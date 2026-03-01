@@ -57,6 +57,8 @@ export default function ServicesView({ user }) {
     } catch (err) { toast.error(err.message); }
   };
 
+  const canManageServices = user.role === 'admin' || user.role === 'super_admin';
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -64,7 +66,7 @@ export default function ServicesView({ user }) {
           <h1 className="text-2xl font-bold">Service Catalog</h1>
           <p className="text-muted-foreground">Manage your service offerings and default rates</p>
         </div>
-        {user.role === 'admin' && (
+        {canManageServices && (
           <Dialog open={showDialog} onOpenChange={(open) => { setShowDialog(open); if (!open) { setEditing(null); setForm({ name: '', defaultRate: '', description: '' }); } }}>
             <DialogTrigger asChild>
               <Button><Plus size={16} className="mr-2" /> Add Service</Button>
