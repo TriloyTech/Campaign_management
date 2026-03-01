@@ -64,6 +64,8 @@ export default function ClientsView({ user }) {
     c.industry?.toLowerCase().includes(search.toLowerCase())
   );
 
+  const canManageClients = user.role === 'admin' || user.role === 'super_admin';
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -71,7 +73,7 @@ export default function ClientsView({ user }) {
           <h1 className="text-2xl font-bold">Clients</h1>
           <p className="text-muted-foreground">Manage your client companies</p>
         </div>
-        {user.role === 'admin' && (
+        {canManageClients && (
           <Dialog open={showDialog} onOpenChange={(open) => { setShowDialog(open); if (!open) { setEditingClient(null); setForm({ name: '', contactPerson: '', email: '', phone: '', industry: '' }); } }}>
             <DialogTrigger asChild>
               <Button><Plus size={16} className="mr-2" /> Add Client</Button>
