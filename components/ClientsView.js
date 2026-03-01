@@ -118,7 +118,7 @@ export default function ClientsView({ user }) {
                   <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
                     <Building2 className="text-blue-600" size={20} />
                   </div>
-                  {user.role === 'admin' && (
+                  {canManageClients && (
                     <div className="flex gap-1">
                       <button onClick={() => handleEdit(client)} className="p-1.5 rounded hover:bg-muted"><Pencil size={14} /></button>
                       <button onClick={() => handleDelete(client.id)} className="p-1.5 rounded hover:bg-red-50 text-red-500"><Trash2 size={14} /></button>
