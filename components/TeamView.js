@@ -10,19 +10,24 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Checkbox } from '@/components/ui/checkbox';
 import { apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
-import { UserPlus, Users, Shield, User, Briefcase, Building2, Crown, Check } from 'lucide-react';
+import { UserPlus, Users, Shield, User, Briefcase, Building2, Crown, Check, Pencil, Trash2, KeyRound } from 'lucide-react';
 
 export default function TeamView({ user }) {
   const [members, setMembers] = useState([]);
   const [organizations, setOrganizations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showDialog, setShowDialog] = useState(false);
+  const [editingMember, setEditingMember] = useState(null);
+  const [showPasswordDialog, setShowPasswordDialog] = useState(null);
+  const [newPassword, setNewPassword] = useState('');
   const [form, setForm] = useState({ 
     name: '', email: '', password: '', role: 'team_member', 
     designation: '', department: '', organizationIds: [] 
   });
 
   const isSuperAdmin = user?.role === 'super_admin';
+  const isAdmin = user?.role === 'admin';
+  const canManageTeam = isSuperAdmin || isAdmin;
 
   useEffect(() => {
     loadTeam();
@@ -51,46 +56,98 @@ export default function TeamView({ user }) {
     });
   };
 
-  const handleInvite = async () => {
-    if (!form.name || !form.email || !form.password) { 
-      toast.error('Name, email, and password are required'); 
+  const handleSave = async () => {
+    if (!form.name || !form.email) { 
+      toast.error('Name and email are required'); 
       return; 
     }
     
-    // For Super Admin, require at least one organization
-    if (isSuperAdmin && (!form.organizationIds || form.organizationIds.length === 0)) {
+    if (!editingMember && !form.password) {
+      toast.error('Password is required for new members');
+      return;
+    }
+    
+    // For Super Admin creating new member, require at least one organization
+    if (isSuperAdmin && !editingMember && (!form.organizationIds || form.organizationIds.length === 0)) {
       toast.error('Please select at least one organization');
       return;
     }
 
     try {
-      // If super admin selected multiple orgs, create user in first org
-      // For now, backend supports single org, so we use the first selected
-      const payload = { 
-        name: form.name,
-        email: form.email,
-        password: form.password,
-        role: form.role,
-        designation: form.designation,
-        department: form.department
-      };
-      
-      if (isSuperAdmin && form.organizationIds.length > 0) {
-        payload.organizationId = form.organizationIds[0];
-      }
-      
-      await apiFetch('POST', 'team/invite', payload);
-      
-      // If multiple orgs selected, show info message
-      if (isSuperAdmin && form.organizationIds.length > 1) {
-        toast.success(`Team member added to ${organizations.find(o => o.id === form.organizationIds[0])?.name}! Note: Multi-org assignment creates user in the first selected organization.`);
+      if (editingMember) {
+        // Update existing member
+        const payload = { 
+          name: form.name,
+          email: form.email,
+          role: form.role,
+          designation: form.designation,
+          department: form.department
+        };
+        await apiFetch('PUT', `team/${editingMember.id}`, payload);
+        toast.success('Team member updated!');
       } else {
+        // Create new member
+        const payload = { 
+          name: form.name,
+          email: form.email,
+          password: form.password,
+          role: form.role,
+          designation: form.designation,
+          department: form.department
+        };
+        
+        if (isSuperAdmin && form.organizationIds.length > 0) {
+          payload.organizationId = form.organizationIds[0];
+        }
+        
+        await apiFetch('POST', 'team/invite', payload);
         toast.success('Team member added!');
       }
       
       setShowDialog(false);
-      setForm({ name: '', email: '', password: '', role: 'team_member', designation: '', department: '', organizationIds: [] });
+      setEditingMember(null);
+      resetForm();
       loadTeam();
+    } catch (err) { toast.error(err.message); }
+  };
+
+  const handleEdit = (member) => {
+    setEditingMember(member);
+    setForm({
+      name: member.name || '',
+      email: member.email || '',
+      password: '',
+      role: member.role || 'team_member',
+      designation: member.designation || '',
+      department: member.department || '',
+      organizationIds: member.organizationId ? [member.organizationId] : []
+    });
+    setShowDialog(true);
+  };
+
+  const handleDelete = async (member) => {
+    if (member.id === user.id) {
+      toast.error("You cannot delete yourself");
+      return;
+    }
+    if (!confirm(`Delete team member "${member.name}"? This cannot be undone.`)) return;
+    try {
+      await apiFetch('DELETE', `team/${member.id}`);
+      toast.success('Team member deleted');
+      loadTeam();
+    } catch (err) { toast.error(err.message); }
+  };
+
+  const handleResetPassword = async () => {
+    if (!newPassword || newPassword.length < 6) {
+      toast.error('Password must be at least 6 characters');
+      return;
+    }
+    try {
+      await apiFetch('PUT', `team/${showPasswordDialog.id}/password`, { password: newPassword });
+      toast.success(`Password reset for ${showPasswordDialog.name}`);
+      setShowPasswordDialog(null);
+      setNewPassword('');
     } catch (err) { toast.error(err.message); }
   };
 
@@ -106,22 +163,32 @@ export default function TeamView({ user }) {
     setForm({ name: '', email: '', password: '', role: 'team_member', designation: '', department: '', organizationIds: [] });
   };
 
+  // Check if current user can manage this member
+  const canManageMember = (member) => {
+    if (member.id === user.id) return false; // Can't manage yourself
+    if (isSuperAdmin) return true; // Super admin can manage everyone
+    if (isAdmin && member.role !== 'super_admin') return true; // Admin can manage non-super-admins
+    return false;
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div><h1 className="text-2xl font-bold">Team</h1><p className="text-muted-foreground">Manage your agency team members</p></div>
-        {user.role !== 'team_member' && (
-          <Dialog open={showDialog} onOpenChange={(open) => { setShowDialog(open); if (!open) resetForm(); }}>
+        {canManageTeam && (
+          <Dialog open={showDialog} onOpenChange={(open) => { setShowDialog(open); if (!open) { setEditingMember(null); resetForm(); } }}>
             <DialogTrigger asChild><Button><UserPlus size={16} className="mr-2" /> Add Member</Button></DialogTrigger>
             <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
-              <DialogHeader><DialogTitle>Add Team Member</DialogTitle></DialogHeader>
+              <DialogHeader><DialogTitle>{editingMember ? 'Edit Team Member' : 'Add Team Member'}</DialogTitle></DialogHeader>
               <div className="space-y-4 mt-4">
                 <div><Label>Full Name *</Label><Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Member name" /></div>
                 <div><Label>Email *</Label><Input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="member@agency.com" /></div>
-                <div><Label>Password *</Label><Input type="password" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} placeholder="Initial password" /></div>
+                {!editingMember && (
+                  <div><Label>Password *</Label><Input type="password" value={form.password} onChange={e => setForm({ ...form, password: e.target.value })} placeholder="Initial password" /></div>
+                )}
                 
-                {/* Organization Selection for Super Admin */}
-                {isSuperAdmin && organizations.length > 0 && (
+                {/* Organization Selection for Super Admin (only when creating) */}
+                {isSuperAdmin && !editingMember && organizations.length > 0 && (
                   <div className="space-y-2">
                     <Label className="flex items-center gap-2">
                       <Building2 size={14} /> Assign to Organization(s) *
@@ -174,7 +241,7 @@ export default function TeamView({ user }) {
                   <div><Label>Designation <span className="text-muted-foreground text-xs">(optional)</span></Label><Input value={form.designation} onChange={e => setForm({ ...form, designation: e.target.value })} placeholder="e.g., Designer" /></div>
                   <div><Label>Department <span className="text-muted-foreground text-xs">(optional)</span></Label><Input value={form.department} onChange={e => setForm({ ...form, department: e.target.value })} placeholder="e.g., Creative" /></div>
                 </div>
-                <Button onClick={handleInvite} className="w-full">Add Team Member</Button>
+                <Button onClick={handleSave} className="w-full">{editingMember ? 'Update' : 'Add'} Team Member</Button>
               </div>
             </DialogContent>
           </Dialog>
@@ -194,8 +261,19 @@ export default function TeamView({ user }) {
                     <span className="text-sm font-semibold text-white">{m.name?.charAt(0)?.toUpperCase()}</span>
                   </div>
                   <div className="flex-1 min-w-0">
-                    <h3 className="font-semibold text-sm">{m.name}</h3>
-                    <p className="text-xs text-muted-foreground truncate">{m.email}</p>
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <h3 className="font-semibold text-sm">{m.name}</h3>
+                        <p className="text-xs text-muted-foreground truncate">{m.email}</p>
+                      </div>
+                      {canManageMember(m) && (
+                        <div className="flex gap-1">
+                          <button onClick={() => handleEdit(m)} className="p-1.5 rounded hover:bg-muted" title="Edit"><Pencil size={14} /></button>
+                          <button onClick={() => { setShowPasswordDialog(m); setNewPassword(''); }} className="p-1.5 rounded hover:bg-muted" title="Reset Password"><KeyRound size={14} /></button>
+                          <button onClick={() => handleDelete(m)} className="p-1.5 rounded hover:bg-red-50 text-red-500" title="Delete"><Trash2 size={14} /></button>
+                        </div>
+                      )}
+                    </div>
                     <div className="flex flex-wrap gap-1.5 mt-2">{getRoleBadge(m.role)}</div>
                     {(m.designation || m.department) && (
                       <div className="flex items-center gap-3 mt-2 text-xs text-muted-foreground">
@@ -211,6 +289,32 @@ export default function TeamView({ user }) {
           ))}
         </div>
       )}
+
+      {/* Password Reset Dialog */}
+      <Dialog open={!!showPasswordDialog} onOpenChange={() => { setShowPasswordDialog(null); setNewPassword(''); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reset Password</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-4">
+            <p className="text-sm text-muted-foreground">
+              Set a new password for <strong>{showPasswordDialog?.name}</strong>
+            </p>
+            <div>
+              <Label>New Password *</Label>
+              <Input 
+                type="password" 
+                value={newPassword} 
+                onChange={e => setNewPassword(e.target.value)} 
+                placeholder="Enter new password (min 6 characters)"
+              />
+            </div>
+            <Button onClick={handleResetPassword} className="w-full" variant="destructive">
+              <KeyRound size={16} className="mr-2" /> Reset Password
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
