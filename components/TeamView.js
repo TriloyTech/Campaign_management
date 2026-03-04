@@ -97,7 +97,7 @@ export default function TeamView({ user }) {
         };
         
         if (isSuperAdmin && form.organizationIds.length > 0) {
-          payload.organizationId = form.organizationIds[0];
+          payload.organizationIds = form.organizationIds;
         }
         
         await apiFetch('POST', 'team/invite', payload);

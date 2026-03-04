@@ -130,10 +130,10 @@ async function handleAuth(request, action, method) {
     await db.collection('organizations').insertOne({ id: orgId, name: organizationName, createdAt: new Date() });
     await db.collection('users').insertOne({
       id: userId, email, password: hashPassword(password), name,
-      role: 'admin', organizationId: orgId, createdAt: new Date()
+      role: 'admin', organizationId: orgId, organizationIds: [orgId], createdAt: new Date()
     });
-    const token = createToken({ id: userId, email, name, role: 'admin', organizationId: orgId });
-    return json({ token, user: { id: userId, email, name, role: 'admin', organizationId: orgId, organizationName } });
+    const token = createToken({ id: userId, email, name, role: 'admin', organizationId: orgId, organizationIds: [orgId] });
+    return json({ token, user: { id: userId, email, name, role: 'admin', organizationId: orgId, organizationIds: [orgId], organizationName } });
   }
   if (method === 'POST' && action === 'login') {
     const db = await getDb();
@@ -141,8 +141,18 @@ async function handleAuth(request, action, method) {
     const user = await db.collection('users').findOne({ email });
     if (!user || !verifyPassword(password, user.password)) return json({ error: 'Invalid credentials' }, 401);
     const org = await db.collection('organizations').findOne({ id: user.organizationId });
-    const token = createToken({ id: user.id, email: user.email, name: user.name, role: user.role, organizationId: user.organizationId });
-    return json({ token, user: { id: user.id, email: user.email, name: user.name, role: user.role, organizationId: user.organizationId, organizationName: org?.name } });
+    // Get all organizations for multi-org users
+    const orgIds = user.organizationIds || [user.organizationId];
+    const allOrgs = await db.collection('organizations').find({ id: { $in: orgIds } }).toArray();
+    const token = createToken({ id: user.id, email: user.email, name: user.name, role: user.role, organizationId: user.organizationId, organizationIds: orgIds });
+    return json({ 
+      token, 
+      user: { 
+        id: user.id, email: user.email, name: user.name, role: user.role, 
+        organizationId: user.organizationId, organizationIds: orgIds,
+        organizationName: org?.name, organizations: allOrgs
+      }
+    });
   }
   if (method === 'GET' && action === 'me') {
     const user = getUser(request);
@@ -151,9 +161,12 @@ async function handleAuth(request, action, method) {
     const dbUser = await db.collection('users').findOne({ id: user.id });
     if (!dbUser) return json({ error: 'User not found' }, 404);
     const org = await db.collection('organizations').findOne({ id: dbUser.organizationId });
+    const orgIds = dbUser.organizationIds || [dbUser.organizationId];
+    const allOrgs = await db.collection('organizations').find({ id: { $in: orgIds } }).toArray();
     return json({ user: { 
       id: dbUser.id, email: dbUser.email, name: dbUser.name, role: dbUser.role, 
-      organizationId: dbUser.organizationId, organizationName: org?.name,
+      organizationId: dbUser.organizationId, organizationIds: orgIds,
+      organizationName: org?.name, organizations: allOrgs,
       designation: dbUser.designation || '', department: dbUser.department || '',
       phone: dbUser.phone || '', createdAt: dbUser.createdAt
     }});
@@ -374,15 +387,31 @@ async function handleCampaigns(request, id, method) {
   if (method === 'GET' && !id) {
     let filter = {};
     if (orgId) filter.organizationId = orgId;
-    else if (user.role !== 'super_admin') filter.organizationId = user.organizationId;
+    else if (user.role !== 'super_admin') {
+      // For multi-org team members
+      const orgIds = user.organizationIds || [user.organizationId];
+      filter.organizationId = { $in: orgIds };
+    }
     if (user.role === 'team_member') filter.assignedTo = user.id;
     const url = new URL(request.url);
     const status = url.searchParams.get('status');
     const clientId = url.searchParams.get('clientId');
     const type = url.searchParams.get('type');
-    if (status) filter.status = status;
+    const month = url.searchParams.get('month'); // Format: YYYY-MM
+    if (status && status !== 'all') filter.status = status;
     if (clientId) filter.clientId = clientId;
-    if (type) filter.type = type;
+    if (type && type !== 'all') filter.type = type;
+    // Month filter - campaigns that overlap with the given month
+    if (month) {
+      const [year, mon] = month.split('-').map(Number);
+      const monthStart = new Date(year, mon - 1, 1);
+      const monthEnd = new Date(year, mon, 0);
+      filter.$or = [
+        { startDate: { $lte: monthEnd.toISOString().split('T')[0], $gte: monthStart.toISOString().split('T')[0] } },
+        { endDate: { $gte: monthStart.toISOString().split('T')[0], $lte: monthEnd.toISOString().split('T')[0] } },
+        { $and: [{ startDate: { $lte: monthStart.toISOString().split('T')[0] } }, { endDate: { $gte: monthEnd.toISOString().split('T')[0] } }] }
+      ];
+    }
     Object.assign(filter, dateFilter);
     const campaigns = await db.collection('campaigns').find(filter).sort({ createdAt: -1 }).limit(200).toArray();
     return json({ campaigns });
@@ -392,7 +421,8 @@ async function handleCampaigns(request, id, method) {
     const campaign = await db.collection('campaigns').findOne({ id });
     if (!campaign) return json({ error: 'Campaign not found' }, 404);
     const lineItems = await db.collection('line_items').find({ campaignId: id }).limit(100).toArray();
-    const deliverables = await db.collection('deliverables').find({ campaignId: id }).sort({ serviceName: 1, unitIndex: 1 }).limit(500).toArray();
+    // Get deliverables grouped by month if renewable
+    const deliverables = await db.collection('deliverables').find({ campaignId: id }).sort({ month: -1, serviceName: 1, unitIndex: 1 }).limit(1000).toArray();
     const client = await db.collection('clients').findOne({ id: campaign.clientId });
     return json({ campaign, lineItems, deliverables, client });
   }
@@ -400,7 +430,7 @@ async function handleCampaigns(request, id, method) {
   if (method === 'POST') {
     if (user.role === 'team_member') return json({ error: 'Not authorized' }, 403);
     const data = await request.json();
-    const { name, clientId, type, startDate, endDate, assignedTo, lineItems } = data;
+    const { name, clientId, type, startDate, endDate, assignedTo, lineItems, isRenewable } = data;
     if (!name || !clientId || !type || !lineItems?.length) return json({ error: 'Missing required fields' }, 400);
     const client = await db.collection('clients').findOne({ id: clientId });
     if (!client) return json({ error: 'Client not found' }, 404);
@@ -409,6 +439,10 @@ async function handleCampaigns(request, id, method) {
     let totalProjected = 0;
     const lineItemDocs = [];
     const deliverableDocs = [];
+    
+    // Calculate the starting month for deliverables
+    const startMonth = startDate ? startDate.substring(0, 7) : new Date().toISOString().substring(0, 7);
+    
     for (const item of lineItems) {
       const lineItemId = uuidv4();
       const total = item.quantity * item.rate;
@@ -418,14 +452,15 @@ async function handleCampaigns(request, id, method) {
         deliverableDocs.push({
           id: uuidv4(), campaignId, lineItemId, serviceName: item.serviceName, unitIndex: i + 1,
           status: 'pending', proofUrl: '', assignedTo: assignedTo?.[0] || '', rate: item.rate,
-          createdAt: new Date(), updatedAt: new Date()
+          month: startMonth, createdAt: new Date(), updatedAt: new Date()
         });
       }
     }
     const campaign = {
       id: campaignId, organizationId: targetOrg, clientId, clientName: client.name, name, type,
       status: 'active', startDate: startDate || '', endDate: endDate || '', assignedTo: assignedTo || [],
-      totalProjected, totalEarned: 0, createdAt: new Date(), updatedAt: new Date()
+      totalProjected, totalEarned: 0, isRenewable: !!isRenewable, lastRenewedMonth: startMonth,
+      createdAt: new Date(), updatedAt: new Date()
     };
     await db.collection('campaigns').insertOne(campaign);
     if (lineItemDocs.length) await db.collection('line_items').insertMany(lineItemDocs);
@@ -435,6 +470,7 @@ async function handleCampaigns(request, id, method) {
   }
 
   if (method === 'PUT' && id) {
+    if (user.role === 'team_member') return json({ error: 'Not authorized' }, 403);
     const data = await request.json();
     const updateFields = {};
     if (data.name !== undefined) updateFields.name = data.name;
@@ -442,6 +478,7 @@ async function handleCampaigns(request, id, method) {
     if (data.startDate !== undefined) updateFields.startDate = data.startDate;
     if (data.endDate !== undefined) updateFields.endDate = data.endDate;
     if (data.assignedTo !== undefined) updateFields.assignedTo = data.assignedTo;
+    if (data.isRenewable !== undefined) updateFields.isRenewable = data.isRenewable;
     updateFields.updatedAt = new Date();
     await db.collection('campaigns').updateOne({ id }, { $set: updateFields });
     const campaign = await db.collection('campaigns').findOne({ id });
@@ -452,12 +489,61 @@ async function handleCampaigns(request, id, method) {
   if (method === 'DELETE' && id) {
     if (user.role === 'team_member') return json({ error: 'Not authorized' }, 403);
     const delCampaign = await db.collection('campaigns').findOne({ id });
+    if (!delCampaign) return json({ error: 'Campaign not found' }, 404);
     await db.collection('campaigns').deleteOne({ id });
     await db.collection('line_items').deleteMany({ campaignId: id });
     await db.collection('deliverables').deleteMany({ campaignId: id });
     await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: delCampaign?.organizationId, userId: user.id, userName: user.name, action: 'deleted', entityType: 'campaign', entityId: id, details: `Deleted campaign "${delCampaign?.name || id}"`, createdAt: new Date() });
     return json({ success: true });
   }
+  return json({ error: 'Not found' }, 404);
+}
+
+// ============ CAMPAIGN RENEWAL ============
+async function handleCampaignRenewal(request, campaignId, method) {
+  const user = getUser(request);
+  if (!user) return json({ error: 'Unauthorized' }, 401);
+  if (user.role === 'team_member') return json({ error: 'Not authorized' }, 403);
+  const db = await getDb();
+
+  if (method === 'POST') {
+    const campaign = await db.collection('campaigns').findOne({ id: campaignId });
+    if (!campaign) return json({ error: 'Campaign not found' }, 404);
+    if (!campaign.isRenewable) return json({ error: 'Campaign is not renewable' }, 400);
+    
+    const data = await request.json();
+    const targetMonth = data.month || new Date().toISOString().substring(0, 7);
+    
+    // Check if deliverables for this month already exist
+    const existingDeliverables = await db.collection('deliverables').find({ campaignId, month: targetMonth }).toArray();
+    if (existingDeliverables.length > 0) {
+      return json({ error: `Deliverables for ${targetMonth} already exist` }, 400);
+    }
+    
+    // Get line items to recreate deliverables
+    const lineItems = await db.collection('line_items').find({ campaignId }).toArray();
+    const deliverableDocs = [];
+    
+    for (const item of lineItems) {
+      for (let i = 0; i < item.quantity; i++) {
+        deliverableDocs.push({
+          id: uuidv4(), campaignId, lineItemId: item.id, serviceName: item.serviceName, unitIndex: i + 1,
+          status: 'pending', proofUrl: '', assignedTo: campaign.assignedTo?.[0] || '', rate: item.rate,
+          month: targetMonth, createdAt: new Date(), updatedAt: new Date()
+        });
+      }
+    }
+    
+    if (deliverableDocs.length) {
+      await db.collection('deliverables').insertMany(deliverableDocs);
+      await db.collection('campaigns').updateOne({ id: campaignId }, { $set: { lastRenewedMonth: targetMonth, updatedAt: new Date() } });
+    }
+    
+    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: campaign.organizationId, userId: user.id, userName: user.name, action: 'created', entityType: 'campaign_renewal', entityId: campaignId, details: `Renewed campaign "${campaign.name}" for ${targetMonth}`, createdAt: new Date() });
+    
+    return json({ success: true, deliverables: deliverableDocs, month: targetMonth });
+  }
+  
   return json({ error: 'Not found' }, 404);
 }
 
@@ -470,31 +556,104 @@ async function handleDeliverables(request, id, method) {
   if (method === 'GET' && !id) {
     const url = new URL(request.url);
     const campaignId = url.searchParams.get('campaignId');
+    const month = url.searchParams.get('month');
     let filter = {};
     if (campaignId) filter.campaignId = campaignId;
+    if (month) filter.month = month;
     if (user.role === 'team_member') filter.assignedTo = user.id;
-    const deliverables = await db.collection('deliverables').find(filter).sort({ serviceName: 1, unitIndex: 1 }).limit(500).toArray();
+    const deliverables = await db.collection('deliverables').find(filter).sort({ month: -1, serviceName: 1, unitIndex: 1 }).limit(500).toArray();
     return json({ deliverables });
+  }
+
+  // Create new deliverable (Admin/Super Admin only)
+  if (method === 'POST') {
+    if (user.role === 'team_member') return json({ error: 'Not authorized' }, 403);
+    const data = await request.json();
+    const { campaignId, serviceName, rate, assignedTo, month } = data;
+    if (!campaignId || !serviceName || !rate) return json({ error: 'Campaign, service name, and rate required' }, 400);
+    
+    const campaign = await db.collection('campaigns').findOne({ id: campaignId });
+    if (!campaign) return json({ error: 'Campaign not found' }, 404);
+    
+    // Get the next unit index for this service in this month
+    const existingDeliverables = await db.collection('deliverables').find({ 
+      campaignId, serviceName, month: month || campaign.lastRenewedMonth || new Date().toISOString().substring(0, 7) 
+    }).sort({ unitIndex: -1 }).limit(1).toArray();
+    const nextIndex = (existingDeliverables[0]?.unitIndex || 0) + 1;
+    
+    const deliverable = {
+      id: uuidv4(), campaignId, lineItemId: '', serviceName, unitIndex: nextIndex,
+      status: 'pending', proofUrl: '', assignedTo: assignedTo || '', rate: Number(rate),
+      month: month || campaign.lastRenewedMonth || new Date().toISOString().substring(0, 7),
+      createdAt: new Date(), updatedAt: new Date()
+    };
+    
+    await db.collection('deliverables').insertOne(deliverable);
+    
+    // Update campaign totals
+    const allDeliverables = await db.collection('deliverables').find({ campaignId }).toArray();
+    const totalProjected = allDeliverables.reduce((sum, d) => sum + d.rate, 0);
+    const totalEarned = allDeliverables.filter(d => d.status === 'delivered').reduce((sum, d) => sum + d.rate, 0);
+    await db.collection('campaigns').updateOne({ id: campaignId }, { $set: { totalProjected, totalEarned, updatedAt: new Date() } });
+    
+    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: campaign.organizationId, userId: user.id, userName: user.name, action: 'created', entityType: 'deliverable', entityId: deliverable.id, details: `Added deliverable "${serviceName} #${nextIndex}" to "${campaign.name}"`, createdAt: new Date() });
+    
+    return json({ deliverable, totalProjected, totalEarned }, 201);
   }
 
   if (method === 'PUT' && id) {
     const data = await request.json();
     const deliverable = await db.collection('deliverables').findOne({ id });
     if (!deliverable) return json({ error: 'Deliverable not found' }, 404);
+    
+    // Team members can only update status and proofUrl
     const updateData = { updatedAt: new Date() };
     if (data.status !== undefined) updateData.status = data.status;
     if (data.proofUrl !== undefined) updateData.proofUrl = data.proofUrl;
-    if (data.assignedTo !== undefined) updateData.assignedTo = data.assignedTo;
+    
+    // Admin/Super Admin can update more fields
+    if (user.role !== 'team_member') {
+      if (data.assignedTo !== undefined) updateData.assignedTo = data.assignedTo;
+      if (data.serviceName !== undefined) updateData.serviceName = data.serviceName;
+      if (data.rate !== undefined) updateData.rate = Number(data.rate);
+      if (data.month !== undefined) updateData.month = data.month;
+    }
+    
     await db.collection('deliverables').updateOne({ id }, { $set: updateData });
     const allDeliverables = await db.collection('deliverables').find({ campaignId: deliverable.campaignId }).toArray();
+    const totalProjected = allDeliverables.reduce((sum, d) => sum + (d.id === id ? (data.rate !== undefined ? Number(data.rate) : d.rate) : d.rate), 0);
     const totalEarned = allDeliverables.reduce((sum, d) => {
       const st = d.id === id ? (data.status || d.status) : d.status;
-      return sum + (st === 'delivered' ? d.rate : 0);
+      const rt = d.id === id ? (data.rate !== undefined ? Number(data.rate) : d.rate) : d.rate;
+      return sum + (st === 'delivered' ? rt : 0);
     }, 0);
-    await db.collection('campaigns').updateOne({ id: deliverable.campaignId }, { $set: { totalEarned, updatedAt: new Date() } });
-    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: user.organizationId, userId: user.id, userName: user.name, action: 'updated', entityType: 'deliverable', entityId: id, details: `Updated "${deliverable.serviceName} #${deliverable.unitIndex}" to ${data.status || 'updated'}`, createdAt: new Date() });
-    return json({ success: true, totalEarned });
+    await db.collection('campaigns').updateOne({ id: deliverable.campaignId }, { $set: { totalProjected, totalEarned, updatedAt: new Date() } });
+    
+    const campaign = await db.collection('campaigns').findOne({ id: deliverable.campaignId });
+    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: campaign?.organizationId || user.organizationId, userId: user.id, userName: user.name, action: 'updated', entityType: 'deliverable', entityId: id, details: `Updated "${deliverable.serviceName} #${deliverable.unitIndex}" to ${data.status || 'updated'}`, createdAt: new Date() });
+    return json({ success: true, totalProjected, totalEarned });
   }
+
+  // Delete deliverable (Admin/Super Admin only)
+  if (method === 'DELETE' && id) {
+    if (user.role === 'team_member') return json({ error: 'Not authorized' }, 403);
+    const deliverable = await db.collection('deliverables').findOne({ id });
+    if (!deliverable) return json({ error: 'Deliverable not found' }, 404);
+    
+    await db.collection('deliverables').deleteOne({ id });
+    
+    // Update campaign totals
+    const allDeliverables = await db.collection('deliverables').find({ campaignId: deliverable.campaignId }).toArray();
+    const totalProjected = allDeliverables.reduce((sum, d) => sum + d.rate, 0);
+    const totalEarned = allDeliverables.filter(d => d.status === 'delivered').reduce((sum, d) => sum + d.rate, 0);
+    await db.collection('campaigns').updateOne({ id: deliverable.campaignId }, { $set: { totalProjected, totalEarned, updatedAt: new Date() } });
+    
+    const campaign = await db.collection('campaigns').findOne({ id: deliverable.campaignId });
+    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: campaign?.organizationId || user.organizationId, userId: user.id, userName: user.name, action: 'deleted', entityType: 'deliverable', entityId: id, details: `Deleted "${deliverable.serviceName} #${deliverable.unitIndex}" from "${campaign?.name}"`, createdAt: new Date() });
+    
+    return json({ success: true, totalProjected, totalEarned });
+  }
+
   return json({ error: 'Not found' }, 404);
 }
 
@@ -593,15 +752,30 @@ async function handleTeam(request, id, subResource, method) {
     const existing = await db.collection('users').findOne({ email: data.email });
     if (existing) return json({ error: 'Email already exists' }, 400);
     const memberRole = data.role === 'admin' ? 'admin' : (data.role === 'super_admin' ? 'super_admin' : 'team_member');
-    const targetOrg = (user.role === 'super_admin' && data.organizationId) ? data.organizationId : (orgId || user.organizationId);
+    
+    // Support multiple organizations
+    let orgIds = [];
+    let primaryOrg = '';
+    
+    if (user.role === 'super_admin' && data.organizationIds && data.organizationIds.length > 0) {
+      orgIds = data.organizationIds;
+      primaryOrg = data.organizationIds[0];
+    } else if (user.role === 'super_admin' && data.organizationId) {
+      orgIds = [data.organizationId];
+      primaryOrg = data.organizationId;
+    } else {
+      primaryOrg = orgId || user.organizationId;
+      orgIds = [primaryOrg];
+    }
+    
     const member = {
       id: uuidv4(), email: data.email, password: hashPassword(data.password), name: data.name,
       role: memberRole, designation: data.designation || '', department: data.department || '',
-      organizationId: targetOrg, createdAt: new Date()
+      organizationId: primaryOrg, organizationIds: orgIds, createdAt: new Date()
     };
     await db.collection('users').insertOne(member);
-    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: targetOrg, userId: user.id, userName: user.name, action: 'created', entityType: 'team_member', entityId: member.id, details: `Added team member "${member.name}" as ${memberRole}`, createdAt: new Date() });
-    return json({ member: { id: member.id, email: member.email, name: member.name, role: member.role, designation: member.designation, department: member.department, organizationId: member.organizationId } }, 201);
+    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: primaryOrg, userId: user.id, userName: user.name, action: 'created', entityType: 'team_member', entityId: member.id, details: `Added team member "${member.name}" as ${memberRole} to ${orgIds.length} org(s)`, createdAt: new Date() });
+    return json({ member: { id: member.id, email: member.email, name: member.name, role: member.role, designation: member.designation, department: member.department, organizationId: member.organizationId, organizationIds: member.organizationIds } }, 201);
   }
 
   // Update team member
@@ -823,6 +997,120 @@ async function handleSeed(request, method) {
   }});
 }
 
+// ============ REPORTS ============
+async function handleReports(request, type, method) {
+  const user = getUser(request);
+  if (!user) return json({ error: 'Unauthorized' }, 401);
+  if (user.role === 'team_member') return json({ error: 'Not authorized' }, 403);
+  const db = await getDb();
+  const orgId = getOrgId(user, request);
+  const url = new URL(request.url);
+  
+  // Get period from query params (month: YYYY-MM, week: YYYY-WW, day: YYYY-MM-DD)
+  const period = url.searchParams.get('period') || 'month';
+  const date = url.searchParams.get('date') || new Date().toISOString().substring(0, 10);
+  
+  let filter = {};
+  if (orgId) filter.organizationId = orgId;
+  else if (user.role !== 'super_admin') filter.organizationId = user.organizationId;
+  
+  // Get all campaigns (including paused/completed) for the period
+  const allCampaigns = await db.collection('campaigns').find(filter).toArray();
+  
+  // Filter campaigns by period
+  let periodStart, periodEnd;
+  if (period === 'month') {
+    const [year, month] = date.split('-').map(Number);
+    periodStart = new Date(year, month - 1, 1);
+    periodEnd = new Date(year, month, 0);
+  } else if (period === 'week') {
+    const d = new Date(date);
+    periodStart = new Date(d.setDate(d.getDate() - d.getDay()));
+    periodEnd = new Date(periodStart);
+    periodEnd.setDate(periodEnd.getDate() + 6);
+  } else if (period === 'day') {
+    periodStart = new Date(date);
+    periodEnd = new Date(date);
+    periodEnd.setDate(periodEnd.getDate() + 1);
+  }
+  
+  // Filter campaigns that overlap with the period
+  const periodCampaigns = allCampaigns.filter(c => {
+    if (!c.startDate) return true;
+    const start = new Date(c.startDate);
+    const end = c.endDate ? new Date(c.endDate) : new Date('2099-12-31');
+    return start <= periodEnd && end >= periodStart;
+  });
+  
+  // Calculate totals (include ALL statuses)
+  const totalProjected = periodCampaigns.reduce((sum, c) => sum + (c.totalProjected || 0), 0);
+  const totalEarned = periodCampaigns.reduce((sum, c) => sum + (c.totalEarned || 0), 0);
+  
+  // Status breakdown
+  const statusBreakdown = {
+    active: periodCampaigns.filter(c => c.status === 'active').length,
+    paused: periodCampaigns.filter(c => c.status === 'paused').length,
+    completed: periodCampaigns.filter(c => c.status === 'completed').length
+  };
+  
+  // Revenue by status
+  const revenueByStatus = {
+    active: { projected: 0, earned: 0 },
+    paused: { projected: 0, earned: 0 },
+    completed: { projected: 0, earned: 0 }
+  };
+  periodCampaigns.forEach(c => {
+    if (revenueByStatus[c.status]) {
+      revenueByStatus[c.status].projected += c.totalProjected || 0;
+      revenueByStatus[c.status].earned += c.totalEarned || 0;
+    }
+  });
+  
+  // Client breakdown (all statuses)
+  const clientMap = {};
+  for (const c of periodCampaigns) {
+    if (!clientMap[c.clientId]) clientMap[c.clientId] = { clientName: c.clientName, clientId: c.clientId, projected: 0, earned: 0, campaigns: 0 };
+    clientMap[c.clientId].projected += c.totalProjected || 0;
+    clientMap[c.clientId].earned += c.totalEarned || 0;
+    clientMap[c.clientId].campaigns += 1;
+  }
+  const clientBreakdown = Object.values(clientMap).sort((a, b) => b.projected - a.projected);
+  
+  // Get deliverables for the period
+  const campaignIds = periodCampaigns.map(c => c.id);
+  const deliverables = await db.collection('deliverables').find({ campaignId: { $in: campaignIds } }).toArray();
+  const deliverableStats = {
+    total: deliverables.length,
+    pending: deliverables.filter(d => d.status === 'pending').length,
+    inProgress: deliverables.filter(d => d.status === 'in_progress').length,
+    review: deliverables.filter(d => d.status === 'review').length,
+    delivered: deliverables.filter(d => d.status === 'delivered').length
+  };
+  
+  return json({
+    period,
+    date,
+    periodStart: periodStart?.toISOString().split('T')[0],
+    periodEnd: periodEnd?.toISOString().split('T')[0],
+    summary: {
+      totalCampaigns: periodCampaigns.length,
+      totalProjected,
+      totalEarned,
+      totalPending: totalProjected - totalEarned,
+      completionRate: totalProjected > 0 ? Math.round((totalEarned / totalProjected) * 100) : 0
+    },
+    statusBreakdown,
+    revenueByStatus,
+    clientBreakdown,
+    deliverableStats,
+    campaigns: periodCampaigns.map(c => ({
+      id: c.id, name: c.name, clientName: c.clientName, status: c.status,
+      totalProjected: c.totalProjected, totalEarned: c.totalEarned,
+      startDate: c.startDate, endDate: c.endDate, isRenewable: c.isRenewable
+    }))
+  });
+}
+
 // ============ MAIN HANDLERS ============
 async function handleRequest(request, pathSegments, method) {
   const [resource, id, subResource] = pathSegments;
@@ -832,11 +1120,14 @@ async function handleRequest(request, pathSegments, method) {
       case 'organizations': return await handleOrganizations(request, id, method);
       case 'clients': return await handleClients(request, id, method);
       case 'services': return await handleServices(request, id, method);
-      case 'campaigns': return await handleCampaigns(request, id, method);
+      case 'campaigns': 
+        if (subResource === 'renew') return await handleCampaignRenewal(request, id, method);
+        return await handleCampaigns(request, id, method);
       case 'deliverables': return await handleDeliverables(request, id, method);
       case 'dashboard': return await handleDashboard(request, id, method);
       case 'team': return await handleTeam(request, id, subResource, method);
       case 'activity-logs': return await handleActivityLogs(request, method);
+      case 'reports': return await handleReports(request, id, method);
       case 'seed': return await handleSeed(request, method);
       default: return json({ status: 'Campaign Tracker API running', version: '2.0' });
     }

@@ -14,6 +14,7 @@ import AuditLogView from '@/components/AuditLogView';
 import OrganizationsView from '@/components/OrganizationsView';
 import OrgSelector from '@/components/OrgSelector';
 import ProfileView from '@/components/ProfileView';
+import ReportsView from '@/components/ReportsView';
 import { setApiContext } from '@/lib/api';
 import { Loader2 } from 'lucide-react';
 
@@ -44,10 +45,22 @@ export default function App() {
     setLoading(false);
   }, []);
 
-  // Load organizations for super_admin
+  // Load organizations for super_admin or multi-org team members
   useEffect(() => {
-    if (user?.role === 'super_admin' && token) {
-      loadOrganizations();
+    if (token && user) {
+      // Super admin can see all orgs
+      if (user.role === 'super_admin') {
+        loadOrganizations();
+      } 
+      // Multi-org team members get orgs from login response
+      else if (user.organizations && user.organizations.length > 1) {
+        setOrganizations(user.organizations);
+        if (!selectedOrgId) {
+          const defaultOrg = user.organizationId || user.organizations[0].id;
+          setSelectedOrgId(defaultOrg);
+          setApiContext(defaultOrg, user.role);
+        }
+      }
     }
   }, [user, token]);
 
@@ -69,7 +82,7 @@ export default function App() {
 
   const handleOrgChange = (orgId) => {
     setSelectedOrgId(orgId);
-    setApiContext(orgId, 'super_admin');
+    setApiContext(orgId, user.role);
     // Views will auto-refresh due to key change
   };
 
@@ -136,6 +149,8 @@ export default function App() {
   if (!user) return <AuthViews onLogin={login} onRegister={register} currentView={currentView} navigate={navigate} />;
 
   const isSuperAdmin = user.role === 'super_admin';
+  const hasMultipleOrgs = organizations.length > 1;
+  const showOrgSelector = isSuperAdmin || hasMultipleOrgs;
   const selectedOrgName = organizations.find(o => o.id === selectedOrgId)?.name;
 
   // Key for forcing re-render when org changes
@@ -153,6 +168,7 @@ export default function App() {
       case 'team': return <TeamView key={viewKey} user={user} />;
       case 'audit-log': return <AuditLogView key={viewKey} user={user} />;
       case 'profile': return <ProfileView key={viewKey} user={user} onUserUpdate={handleUserUpdate} />;
+      case 'reports': return <ReportsView key={viewKey} user={user} />;
       default: return <DashboardView key={viewKey} user={user} navigate={navigate} />;
     }
   };
@@ -161,14 +177,15 @@ export default function App() {
     <div className="flex h-screen overflow-hidden">
       <Sidebar user={user} collapsed={sidebarCollapsed} toggle={() => setSidebarCollapsed(!sidebarCollapsed)} navigate={navigate} currentView={currentView} onLogout={logout} />
       <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Top bar with org selector for super admin */}
-        {isSuperAdmin && (
+        {/* Top bar with org selector for super admin or multi-org users */}
+        {showOrgSelector && (
           <div className="bg-white border-b px-6 py-3 flex items-center justify-between">
             <div className="flex items-center gap-3">
               <span className="text-sm text-muted-foreground">Viewing:</span>
               <OrgSelector organizations={organizations} selectedOrgId={selectedOrgId} onSelect={handleOrgChange} />
             </div>
-            <span className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded-full font-medium">Super Admin Mode</span>
+            {isSuperAdmin && <span className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded-full font-medium">Super Admin Mode</span>}
+            {!isSuperAdmin && hasMultipleOrgs && <span className="text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded-full font-medium">Multi-Org Access</span>}
           </div>
         )}
         <main className="flex-1 overflow-auto bg-gray-50/50 p-6">

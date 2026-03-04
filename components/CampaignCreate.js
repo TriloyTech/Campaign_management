@@ -18,7 +18,7 @@ export default function CampaignCreate({ user, navigate }) {
   const [loading, setLoading] = useState(false);
 
   const [form, setForm] = useState({
-    name: '', clientId: '', type: 'retainer', startDate: '', endDate: '', assignedTo: []
+    name: '', clientId: '', type: 'retainer', startDate: '', endDate: '', assignedTo: [], isRenewable: false
   });
   const [lineItems, setLineItems] = useState([]);
 
@@ -126,6 +126,18 @@ export default function CampaignCreate({ user, navigate }) {
             <div className="grid grid-cols-2 gap-4">
               <div><Label>Start Date</Label><Input type="date" value={form.startDate} onChange={e => setForm({ ...form, startDate: e.target.value })} /></div>
               <div><Label>End Date</Label><Input type="date" value={form.endDate} onChange={e => setForm({ ...form, endDate: e.target.value })} /></div>
+            </div>
+            <div className="flex items-center gap-3">
+              <input 
+                type="checkbox" 
+                id="renewable" 
+                checked={form.isRenewable} 
+                onChange={e => setForm({ ...form, isRenewable: e.target.checked })}
+                className="w-4 h-4 rounded border-gray-300"
+              />
+              <Label htmlFor="renewable" className="text-sm cursor-pointer">
+                Renewable Campaign (auto-creates deliverables each month on the 1st)
+              </Label>
             </div>
             <div>
               <Label>Assign Team Members</Label>
@@ -238,6 +250,9 @@ export default function CampaignCreate({ user, navigate }) {
               <div><span className="text-muted-foreground">Client:</span> <strong>{selectedClient?.name}</strong></div>
               <div><span className="text-muted-foreground">Type:</span> <Badge variant="outline" className="capitalize">{form.type}</Badge></div>
               <div><span className="text-muted-foreground">Period:</span> {form.startDate || 'N/A'} - {form.endDate || 'N/A'}</div>
+              {form.isRenewable && (
+                <div className="col-span-2"><Badge className="bg-blue-100 text-blue-700">Renewable Campaign</Badge> - New deliverables created on 1st of each month</div>
+              )}
             </div>
 
             <div className="border rounded-lg overflow-hidden">

@@ -1,5 +1,5 @@
 'use client';
-import { LayoutDashboard, Users, Megaphone, Package, UserPlus, ChevronLeft, ChevronRight, LogOut, Briefcase, ScrollText, Building, UserCircle } from 'lucide-react';
+import { LayoutDashboard, Users, Megaphone, Package, UserPlus, ChevronLeft, ChevronRight, LogOut, Briefcase, ScrollText, Building, UserCircle, FileText } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 
 export default function Sidebar({ user, collapsed, toggle, navigate, currentView, onLogout }) {
@@ -13,6 +13,7 @@ export default function Sidebar({ user, collapsed, toggle, navigate, currentView
     { id: 'campaigns', label: 'Campaigns', icon: Megaphone },
     { id: 'services', label: 'Services', icon: Package },
     { id: 'team', label: 'Team', icon: UserPlus },
+    { id: 'reports', label: 'Reports', icon: FileText },
     { id: 'audit-log', label: 'Audit Log', icon: ScrollText },
   ];
 
@@ -22,6 +23,7 @@ export default function Sidebar({ user, collapsed, toggle, navigate, currentView
     { id: 'campaigns', label: 'Campaigns', icon: Megaphone },
     { id: 'services', label: 'Services', icon: Package },
     { id: 'team', label: 'Team', icon: UserPlus },
+    { id: 'reports', label: 'Reports', icon: FileText },
     { id: 'audit-log', label: 'Audit Log', icon: ScrollText },
   ];
 
