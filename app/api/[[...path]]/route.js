@@ -738,9 +738,19 @@ async function handleTeam(request, id, subResource, method) {
   if (method === 'GET') {
     let filter = {};
     if (user.role === 'super_admin') {
-      if (orgId) filter.organizationId = orgId;
+      if (orgId) {
+        // Include users where orgId is in their organizationIds array OR is their primary organizationId
+        filter.$or = [
+          { organizationId: orgId },
+          { organizationIds: orgId }
+        ];
+      }
     } else {
-      filter.organizationId = user.organizationId;
+      // For non-super-admin, show users in their org (check both fields)
+      filter.$or = [
+        { organizationId: user.organizationId },
+        { organizationIds: user.organizationId }
+      ];
     }
     const members = await db.collection('users').find(filter, { projection: { password: 0 } }).limit(200).toArray();
     return json({ members });

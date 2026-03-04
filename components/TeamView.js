@@ -281,7 +281,18 @@ export default function TeamView({ user }) {
                         {m.department && <span className="flex items-center gap-1"><Building2 size={11} /> {m.department}</span>}
                       </div>
                     )}
-                    {isSuperAdmin && m.organizationId && <p className="text-xs text-muted-foreground mt-1"><Building2 size={11} className="inline mr-1" />{getOrgName(m.organizationId)}</p>}
+                    {isSuperAdmin && m.organizationIds && m.organizationIds.length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-2">
+                        {m.organizationIds.map(oid => (
+                          <span key={oid} className="text-xs bg-muted px-2 py-0.5 rounded-full flex items-center gap-1">
+                            <Building2 size={10} /> {getOrgName(oid) || 'Unknown'}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                    {isSuperAdmin && (!m.organizationIds || m.organizationIds.length === 0) && m.organizationId && (
+                      <p className="text-xs text-muted-foreground mt-1"><Building2 size={11} className="inline mr-1" />{getOrgName(m.organizationId)}</p>
+                    )}
                   </div>
                 </div>
               </CardContent>
