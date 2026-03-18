@@ -79,6 +79,20 @@ function getUser(request) {
   return verifyToken(auth.slice(7));
 }
 
+// Helper: get user with fresh organizationIds from DB
+async function getUserWithOrgs(request) {
+  const tokenUser = getUser(request);
+  if (!tokenUser) return null;
+  const db = await getDb();
+  const dbUser = await db.collection('users').findOne({ id: tokenUser.id });
+  if (!dbUser) return null;
+  return {
+    ...tokenUser,
+    organizationId: dbUser.organizationId,
+    organizationIds: dbUser.organizationIds || [dbUser.organizationId]
+  };
+}
+
 function json(data, status = 200) {
   return NextResponse.json(data, { status });
 }
@@ -289,7 +303,7 @@ async function handleOrganizations(request, id, method) {
 
 // ============ CLIENTS ============
 async function handleClients(request, id, method) {
-  const user = getUser(request);
+  const user = await getUserWithOrgs(request);
   if (!user) return json({ error: 'Unauthorized' }, 401);
   const db = await getDb();
   const orgId = getOrgId(user, request);
@@ -357,7 +371,7 @@ async function handleClients(request, id, method) {
 
 // ============ SERVICES ============
 async function handleServices(request, id, method) {
-  const user = getUser(request);
+  const user = await getUserWithOrgs(request);
   if (!user) return json({ error: 'Unauthorized' }, 401);
   const db = await getDb();
   const orgId = getOrgId(user, request);
@@ -412,7 +426,7 @@ async function handleServices(request, id, method) {
 
 // ============ CAMPAIGNS ============
 async function handleCampaigns(request, id, method) {
-  const user = getUser(request);
+  const user = await getUserWithOrgs(request);
   if (!user) return json({ error: 'Unauthorized' }, 401);
   const db = await getDb();
   const orgId = getOrgId(user, request);
@@ -535,7 +549,7 @@ async function handleCampaigns(request, id, method) {
 
 // ============ CAMPAIGN RENEWAL ============
 async function handleCampaignRenewal(request, campaignId, method) {
-  const user = getUser(request);
+  const user = await getUserWithOrgs(request);
   if (!user) return json({ error: 'Unauthorized' }, 401);
   if (user.role === 'team_member') return json({ error: 'Not authorized' }, 403);
   const db = await getDb();
@@ -583,7 +597,7 @@ async function handleCampaignRenewal(request, campaignId, method) {
 
 // ============ DELIVERABLES ============
 async function handleDeliverables(request, id, method) {
-  const user = getUser(request);
+  const user = await getUserWithOrgs(request);
   if (!user) return json({ error: 'Unauthorized' }, 401);
   const db = await getDb();
 
@@ -693,7 +707,7 @@ async function handleDeliverables(request, id, method) {
 
 // ============ DASHBOARD ============
 async function handleDashboard(request, subPath, method) {
-  const user = getUser(request);
+  const user = await getUserWithOrgs(request);
   if (!user) return json({ error: 'Unauthorized' }, 401);
   const db = await getDb();
   const orgId = getOrgId(user, request);
@@ -784,7 +798,7 @@ async function handleDashboard(request, subPath, method) {
 
 // ============ TEAM ============
 async function handleTeam(request, id, subResource, method) {
-  const user = getUser(request);
+  const user = await getUserWithOrgs(request);
   if (!user) return json({ error: 'Unauthorized' }, 401);
   const db = await getDb();
   const orgId = getOrgId(user, request);
@@ -912,7 +926,7 @@ async function handleTeam(request, id, subResource, method) {
 
 // ============ ACTIVITY LOGS ============
 async function handleActivityLogs(request, method) {
-  const user = getUser(request);
+  const user = await getUserWithOrgs(request);
   if (!user) return json({ error: 'Unauthorized' }, 401);
   if (user.role === 'team_member') return json({ error: 'Not authorized' }, 403);
   const db = await getDb();
@@ -1069,7 +1083,7 @@ async function handleSeed(request, method) {
 
 // ============ REPORTS ============
 async function handleReports(request, type, method) {
-  const user = getUser(request);
+  const user = await getUserWithOrgs(request);
   if (!user) return json({ error: 'Unauthorized' }, 401);
   if (user.role === 'team_member') return json({ error: 'Not authorized' }, 403);
   const db = await getDb();

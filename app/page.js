@@ -58,13 +58,13 @@ export default function App() {
         if (!selectedOrgId) {
           const defaultOrg = user.organizationId || user.organizations[0].id;
           setSelectedOrgId(defaultOrg);
-          setApiContext(defaultOrg, user.role);
+          setApiContext(defaultOrg, user.role, true); // true = has multiple orgs
         }
       }
       // Single-org users - still set their org context
       else if (user.organizationId) {
         setSelectedOrgId(user.organizationId);
-        setApiContext(user.organizationId, user.role);
+        setApiContext(user.organizationId, user.role, false);
       }
     }
   }, [user, token]);
@@ -80,14 +80,15 @@ export default function App() {
       if (orgs.length > 0 && !selectedOrgId) {
         const defaultOrg = orgs[0].id;
         setSelectedOrgId(defaultOrg);
-        setApiContext(defaultOrg, 'super_admin');
+        setApiContext(defaultOrg, 'super_admin', true);
       }
     } catch (err) { console.error('Failed to load orgs:', err); }
   };
 
   const handleOrgChange = (orgId) => {
     setSelectedOrgId(orgId);
-    setApiContext(orgId, user.role);
+    const isMultiOrg = organizations.length > 1;
+    setApiContext(orgId, user.role, isMultiOrg);
     // Views will auto-refresh due to key change
   };
 
