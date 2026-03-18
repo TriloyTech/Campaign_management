@@ -30,20 +30,6 @@ export default function AuthViews({ onLogin, onRegister, currentView, navigate }
     }
   };
 
-  const seedData = async () => {
-    try {
-      const res = await fetch('/api/seed', { method: 'POST' });
-      const data = await res.json();
-      if (data.success) {
-        toast.success('Demo data loaded! Login with admin@agency.com / admin123');
-        setForm({ ...form, email: 'admin@agency.com', password: 'admin123' });
-        setIsLogin(true);
-      }
-    } catch (err) {
-      toast.error('Failed to seed data');
-    }
-  };
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
@@ -90,12 +76,6 @@ export default function AuthViews({ onLogin, onRegister, currentView, navigate }
             <div className="mt-4 text-center">
               <button onClick={() => setIsLogin(!isLogin)} className="text-sm text-blue-600 hover:underline">
                 {isLogin ? "Don't have an account? Sign up" : 'Already have an account? Sign in'}
-              </button>
-            </div>
-
-            <div className="mt-4 pt-4 border-t text-center">
-              <button onClick={seedData} className="text-xs text-slate-400 hover:text-blue-600 transition-colors">
-                Load demo data for testing
               </button>
             </div>
           </CardContent>

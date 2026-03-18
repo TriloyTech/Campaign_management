@@ -45,14 +45,14 @@ export default function App() {
     setLoading(false);
   }, []);
 
-  // Load organizations for super_admin or multi-org team members
+  // Load organizations for super_admin or multi-org users
   useEffect(() => {
     if (token && user) {
       // Super admin can see all orgs
       if (user.role === 'super_admin') {
         loadOrganizations();
       } 
-      // Multi-org team members get orgs from login response
+      // Multi-org users (admin or team_member) get orgs from login response
       else if (user.organizations && user.organizations.length > 1) {
         setOrganizations(user.organizations);
         if (!selectedOrgId) {
@@ -60,6 +60,11 @@ export default function App() {
           setSelectedOrgId(defaultOrg);
           setApiContext(defaultOrg, user.role);
         }
+      }
+      // Single-org users - still set their org context
+      else if (user.organizationId) {
+        setSelectedOrgId(user.organizationId);
+        setApiContext(user.organizationId, user.role);
       }
     }
   }, [user, token]);

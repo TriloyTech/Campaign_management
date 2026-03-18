@@ -85,11 +85,27 @@ function json(data, status = 200) {
 
 // Helper: resolve effective org ID based on role
 function getOrgId(user, request) {
+  const url = new URL(request.url);
+  const requestedOrgId = url.searchParams.get('organizationId');
+  
   if (user.role === 'super_admin') {
-    const url = new URL(request.url);
-    return url.searchParams.get('organizationId') || null;
+    return requestedOrgId || null;
   }
+  
+  // For multi-org users (admin or team_member), if they specify an org, use it if they have access
+  if (requestedOrgId && user.organizationIds && user.organizationIds.includes(requestedOrgId)) {
+    return requestedOrgId;
+  }
+  
   return user.organizationId;
+}
+
+// Helper: get all org IDs user has access to
+function getUserOrgIds(user) {
+  if (user.role === 'super_admin') {
+    return null; // Super admin can see all
+  }
+  return user.organizationIds || [user.organizationId];
 }
 
 // Helper: date range filter
@@ -279,7 +295,16 @@ async function handleClients(request, id, method) {
   const orgId = getOrgId(user, request);
 
   if (method === 'GET' && !id) {
-    const filter = orgId ? { organizationId: orgId } : {};
+    let filter = {};
+    if (orgId) {
+      filter.organizationId = orgId;
+    } else if (user.role !== 'super_admin') {
+      // Multi-org users: filter by all their organizations
+      const userOrgIds = getUserOrgIds(user);
+      if (userOrgIds && userOrgIds.length > 0) {
+        filter.organizationId = { $in: userOrgIds };
+      }
+    }
     const clients = await db.collection('clients').find(filter).sort({ createdAt: -1 }).limit(200).toArray();
     return json({ clients });
   }
@@ -338,7 +363,16 @@ async function handleServices(request, id, method) {
   const orgId = getOrgId(user, request);
 
   if (method === 'GET' && !id) {
-    const filter = orgId ? { organizationId: orgId } : {};
+    let filter = {};
+    if (orgId) {
+      filter.organizationId = orgId;
+    } else if (user.role !== 'super_admin') {
+      // Multi-org users: filter by all their organizations
+      const userOrgIds = getUserOrgIds(user);
+      if (userOrgIds && userOrgIds.length > 0) {
+        filter.organizationId = { $in: userOrgIds };
+      }
+    }
     const services = await db.collection('service_catalog').find(filter).sort({ createdAt: -1 }).limit(200).toArray();
     return json({ services });
   }
@@ -668,8 +702,15 @@ async function handleDashboard(request, subPath, method) {
   if (subPath === 'revenue-chart') {
     if (user.role === 'team_member') return json({ error: 'Not authorized' }, 403);
     let filter = {};
-    if (orgId) filter.organizationId = orgId;
-    else if (user.role !== 'super_admin') filter.organizationId = user.organizationId;
+    if (orgId) {
+      filter.organizationId = orgId;
+    } else if (user.role !== 'super_admin') {
+      // Multi-org users: filter by all their organizations
+      const userOrgIds = getUserOrgIds(user);
+      if (userOrgIds && userOrgIds.length > 0) {
+        filter.organizationId = { $in: userOrgIds };
+      }
+    }
     Object.assign(filter, dateFilter);
     const campaigns = await db.collection('campaigns').find(filter).limit(1000).toArray();
     const monthlyData = {};
@@ -684,8 +725,15 @@ async function handleDashboard(request, subPath, method) {
   }
 
   let campaignFilter = {};
-  if (orgId) campaignFilter.organizationId = orgId;
-  else if (user.role !== 'super_admin') campaignFilter.organizationId = user.organizationId;
+  if (orgId) {
+    campaignFilter.organizationId = orgId;
+  } else if (user.role !== 'super_admin') {
+    // Multi-org users: filter by all their organizations
+    const userOrgIds = getUserOrgIds(user);
+    if (userOrgIds && userOrgIds.length > 0) {
+      campaignFilter.organizationId = { $in: userOrgIds };
+    }
+  }
   if (user.role === 'team_member') campaignFilter.assignedTo = user.id;
   Object.assign(campaignFilter, dateFilter);
   const campaigns = await db.collection('campaigns').find(campaignFilter).limit(500).toArray();
@@ -722,8 +770,14 @@ async function handleDashboard(request, subPath, method) {
   };
 
   let orgFilter = {};
-  if (orgId) orgFilter.organizationId = orgId;
-  else if (user.role !== 'super_admin') orgFilter.organizationId = user.organizationId;
+  if (orgId) {
+    orgFilter.organizationId = orgId;
+  } else if (user.role !== 'super_admin') {
+    const userOrgIds = getUserOrgIds(user);
+    if (userOrgIds && userOrgIds.length > 0) {
+      orgFilter.organizationId = { $in: userOrgIds };
+    }
+  }
   const recentActivity = await db.collection('activity_logs').find(orgFilter).sort({ createdAt: -1 }).limit(10).toArray();
   return json({ financials, campaigns: campaigns.slice(0, 5), clientBreakdown, deliverableStats, recentActivity });
 }
@@ -870,9 +924,15 @@ async function handleActivityLogs(request, method) {
     const entityType = url.searchParams.get('entityType');
     const action = url.searchParams.get('action');
     const limit = parseInt(url.searchParams.get('limit')) || 100;
-    const filter = {};
-    if (orgId) filter.organizationId = orgId;
-    else if (user.role !== 'super_admin') filter.organizationId = user.organizationId;
+    let filter = {};
+    if (orgId) {
+      filter.organizationId = orgId;
+    } else if (user.role !== 'super_admin') {
+      const userOrgIds = getUserOrgIds(user);
+      if (userOrgIds && userOrgIds.length > 0) {
+        filter.organizationId = { $in: userOrgIds };
+      }
+    }
     if (entityType && entityType !== 'all') filter.entityType = entityType;
     if (action && action !== 'all') filter.action = action;
     Object.assign(filter, dateFilter);
@@ -1021,8 +1081,14 @@ async function handleReports(request, type, method) {
   const date = url.searchParams.get('date') || new Date().toISOString().substring(0, 10);
   
   let filter = {};
-  if (orgId) filter.organizationId = orgId;
-  else if (user.role !== 'super_admin') filter.organizationId = user.organizationId;
+  if (orgId) {
+    filter.organizationId = orgId;
+  } else if (user.role !== 'super_admin') {
+    const userOrgIds = getUserOrgIds(user);
+    if (userOrgIds && userOrgIds.length > 0) {
+      filter.organizationId = { $in: userOrgIds };
+    }
+  }
   
   // Get all campaigns (including paused/completed) for the period
   const allCampaigns = await db.collection('campaigns').find(filter).toArray();
