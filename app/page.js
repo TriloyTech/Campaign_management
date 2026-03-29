@@ -16,7 +16,7 @@ import OrgSelector from '@/components/OrgSelector';
 import ProfileView from '@/components/ProfileView';
 import ReportsView from '@/components/ReportsView';
 import { setApiContext } from '@/lib/api';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Menu, X } from 'lucide-react';
 
 export default function App() {
   const [user, setUser] = useState(null);
@@ -25,6 +25,7 @@ export default function App() {
   const [currentView, setCurrentView] = useState('dashboard');
   const [viewParams, setViewParams] = useState({});
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [organizations, setOrganizations] = useState([]);
   const [selectedOrgId, setSelectedOrgId] = useState(null);
 
@@ -48,21 +49,16 @@ export default function App() {
   // Load organizations for super_admin or multi-org users
   useEffect(() => {
     if (token && user) {
-      // Super admin can see all orgs
       if (user.role === 'super_admin') {
         loadOrganizations();
-      } 
-      // Multi-org users (admin or team_member) get orgs from login response
-      else if (user.organizations && user.organizations.length > 1) {
+      } else if (user.organizations && user.organizations.length > 1) {
         setOrganizations(user.organizations);
         if (!selectedOrgId) {
           const defaultOrg = user.organizationId || user.organizations[0].id;
           setSelectedOrgId(defaultOrg);
-          setApiContext(defaultOrg, user.role, true); // true = has multiple orgs
+          setApiContext(defaultOrg, user.role, true);
         }
-      }
-      // Single-org users - still set their org context
-      else if (user.organizationId) {
+      } else if (user.organizationId) {
         setSelectedOrgId(user.organizationId);
         setApiContext(user.organizationId, user.role, false);
       }
@@ -89,7 +85,6 @@ export default function App() {
     setSelectedOrgId(orgId);
     const isMultiOrg = organizations.length > 1;
     setApiContext(orgId, user.role, isMultiOrg);
-    // Views will auto-refresh due to key change
   };
 
   useEffect(() => {
@@ -104,7 +99,10 @@ export default function App() {
     return () => window.removeEventListener('hashchange', handleHash);
   }, []);
 
-  const navigate = (path) => { window.location.hash = path; };
+  const navigate = (path) => { 
+    window.location.hash = path; 
+    setMobileMenuOpen(false); // Close mobile menu on navigation
+  };
 
   const login = async (email, password) => {
     const res = await fetch('/api/auth/login', {
@@ -157,9 +155,6 @@ export default function App() {
   const isSuperAdmin = user.role === 'super_admin';
   const hasMultipleOrgs = organizations.length > 1;
   const showOrgSelector = isSuperAdmin || hasMultipleOrgs;
-  const selectedOrgName = organizations.find(o => o.id === selectedOrgId)?.name;
-
-  // Key for forcing re-render when org changes
   const viewKey = `${currentView}-${selectedOrgId || 'default'}`;
 
   const renderView = () => {
@@ -180,21 +175,70 @@ export default function App() {
   };
 
   return (
-    <div className="flex h-screen overflow-hidden">
-      <Sidebar user={user} collapsed={sidebarCollapsed} toggle={() => setSidebarCollapsed(!sidebarCollapsed)} navigate={navigate} currentView={currentView} onLogout={logout} />
-      <div className="flex-1 flex flex-col overflow-hidden">
-        {/* Top bar with org selector for super admin or multi-org users */}
-        {showOrgSelector && (
-          <div className="bg-white border-b px-6 py-3 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <span className="text-sm text-muted-foreground">Viewing:</span>
-              <OrgSelector organizations={organizations} selectedOrgId={selectedOrgId} onSelect={handleOrgChange} />
+    <div className="flex h-screen overflow-hidden bg-gray-50">
+      {/* Mobile Menu Overlay */}
+      {mobileMenuOpen && (
+        <div className="fixed inset-0 bg-black/50 z-40 lg:hidden" onClick={() => setMobileMenuOpen(false)} />
+      )}
+
+      {/* Sidebar - Desktop */}
+      <div className="hidden lg:block">
+        <Sidebar 
+          user={user} 
+          collapsed={sidebarCollapsed} 
+          toggle={() => setSidebarCollapsed(!sidebarCollapsed)} 
+          navigate={navigate} 
+          currentView={currentView} 
+          onLogout={logout} 
+        />
+      </div>
+
+      {/* Sidebar - Mobile (Drawer) */}
+      <div className={`fixed inset-y-0 left-0 z-50 lg:hidden transform transition-transform duration-300 ease-in-out ${mobileMenuOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+        <Sidebar 
+          user={user} 
+          collapsed={false} 
+          toggle={() => setMobileMenuOpen(false)} 
+          navigate={navigate} 
+          currentView={currentView} 
+          onLogout={logout}
+          isMobile={true}
+        />
+      </div>
+
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+        {/* Top Bar */}
+        <div className="bg-white border-b px-4 lg:px-6 py-3 flex items-center justify-between gap-3">
+          {/* Mobile Menu Button */}
+          <button 
+            onClick={() => setMobileMenuOpen(true)} 
+            className="lg:hidden p-2 -ml-2 rounded-lg hover:bg-gray-100"
+          >
+            <Menu size={24} />
+          </button>
+
+          {/* Org Selector */}
+          {showOrgSelector ? (
+            <div className="flex items-center gap-2 flex-1 min-w-0">
+              <span className="text-sm text-muted-foreground hidden sm:inline">Viewing:</span>
+              <div className="flex-1 min-w-0 max-w-xs">
+                <OrgSelector organizations={organizations} selectedOrgId={selectedOrgId} onSelect={handleOrgChange} />
+              </div>
             </div>
-            {isSuperAdmin && <span className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded-full font-medium">Super Admin Mode</span>}
-            {!isSuperAdmin && hasMultipleOrgs && <span className="text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded-full font-medium">Multi-Org Access</span>}
+          ) : (
+            <div className="flex-1" />
+          )}
+
+          {/* Role Badge */}
+          <div className="flex-shrink-0">
+            {isSuperAdmin && <span className="text-xs text-amber-600 bg-amber-50 px-2 py-1 rounded-full font-medium whitespace-nowrap">Super Admin</span>}
+            {!isSuperAdmin && hasMultipleOrgs && <span className="text-xs text-blue-600 bg-blue-50 px-2 py-1 rounded-full font-medium whitespace-nowrap">Multi-Org</span>}
           </div>
-        )}
-        <main className="flex-1 overflow-auto bg-gray-50/50 p-6">
+        </div>
+
+        {/* Main Content Area */}
+        <main className="flex-1 overflow-auto p-4 lg:p-6">
           {renderView()}
         </main>
       </div>

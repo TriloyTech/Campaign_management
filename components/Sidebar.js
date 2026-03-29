@@ -1,8 +1,8 @@
 'use client';
-import { LayoutDashboard, Users, Megaphone, Package, UserPlus, ChevronLeft, ChevronRight, LogOut, Briefcase, ScrollText, Building, UserCircle, FileText } from 'lucide-react';
+import { LayoutDashboard, Users, Megaphone, Package, UserPlus, ChevronLeft, ChevronRight, LogOut, Briefcase, ScrollText, Building, UserCircle, FileText, X } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 
-export default function Sidebar({ user, collapsed, toggle, navigate, currentView, onLogout }) {
+export default function Sidebar({ user, collapsed, toggle, navigate, currentView, onLogout, isMobile }) {
   const isSuperAdmin = user?.role === 'super_admin';
   const isAdmin = user?.role === 'admin' || isSuperAdmin;
 
@@ -37,21 +37,24 @@ export default function Sidebar({ user, collapsed, toggle, navigate, currentView
   const navItems = isSuperAdmin ? superAdminNav : (isAdmin ? adminNav : teamNav);
   const roleLabel = isSuperAdmin ? 'Super Admin' : (user?.role === 'admin' ? 'Admin' : 'Custom Access');
 
+  // For mobile, always show full sidebar
+  const showFull = isMobile || !collapsed;
+
   return (
-    <div className={`${collapsed ? 'w-16' : 'w-64'} bg-slate-900 text-white flex flex-col transition-all duration-300 min-h-screen`}>
+    <div className={`${showFull ? 'w-64' : 'w-16'} bg-slate-900 text-white flex flex-col transition-all duration-300 min-h-screen`}>
       <div className="p-4 flex items-center justify-between">
-        {!collapsed && (
+        {showFull && (
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 bg-blue-500 rounded-lg flex items-center justify-center font-bold text-sm">CP</div>
             <span className="font-semibold text-sm">CampaignPulse</span>
           </div>
         )}
         <button onClick={toggle} className="p-1 rounded hover:bg-slate-800 transition-colors">
-          {collapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />}
+          {isMobile ? <X size={18} /> : (collapsed ? <ChevronRight size={18} /> : <ChevronLeft size={18} />)}
         </button>
       </div>
       <Separator className="bg-slate-700" />
-      <nav className="flex-1 p-2 space-y-1">
+      <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = currentView === item.id || (item.id === 'campaigns' && ['campaign-detail', 'campaign-create'].includes(currentView));
@@ -59,9 +62,9 @@ export default function Sidebar({ user, collapsed, toggle, navigate, currentView
             <button key={item.id} onClick={() => navigate(item.id)}
               className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all
                 ${isActive ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}
-                ${collapsed ? 'justify-center' : ''}`}>
+                ${!showFull ? 'justify-center' : ''}`}>
               <Icon size={18} />
-              {!collapsed && <span>{item.label}</span>}
+              {showFull && <span>{item.label}</span>}
             </button>
           );
         })}
@@ -72,13 +75,13 @@ export default function Sidebar({ user, collapsed, toggle, navigate, currentView
           onClick={() => navigate('profile')}
           className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-all
             ${currentView === 'profile' ? 'bg-blue-600 text-white' : 'text-slate-300 hover:bg-slate-800 hover:text-white'}
-            ${collapsed ? 'justify-center' : ''}`}>
+            ${!showFull ? 'justify-center' : ''}`}>
           <UserCircle size={18} />
-          {!collapsed && <span>My Profile</span>}
+          {showFull && <span>My Profile</span>}
         </button>
         
         {/* User info */}
-        <div className={`flex items-center ${collapsed ? 'justify-center' : 'gap-3'} pt-2`}>
+        <div className={`flex items-center ${!showFull ? 'justify-center' : 'gap-3'} pt-2`}>
           <div 
             className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-medium cursor-pointer ${isSuperAdmin ? 'bg-amber-500' : 'bg-blue-500'}`}
             onClick={() => navigate('profile')}
@@ -86,13 +89,13 @@ export default function Sidebar({ user, collapsed, toggle, navigate, currentView
           >
             {user?.name?.charAt(0)?.toUpperCase()}
           </div>
-          {!collapsed && (
+          {showFull && (
             <div className="flex-1 min-w-0">
               <p className="text-sm font-medium truncate">{user?.name}</p>
               <p className="text-xs text-slate-400 truncate">{roleLabel}</p>
             </div>
           )}
-          {!collapsed && (
+          {showFull && (
             <button onClick={onLogout} className="p-1.5 rounded hover:bg-slate-800 transition-colors" title="Logout">
               <LogOut size={16} />
             </button>

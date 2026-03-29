@@ -24,7 +24,6 @@ export default function OrganizationsView({ user }) {
     try {
       const res = await apiFetch('GET', 'organizations');
       setOrgs(res.organizations || []);
-      // Load basic stats for each org
       const statsMap = {};
       for (const org of (res.organizations || [])) {
         try {
@@ -64,7 +63,7 @@ export default function OrganizationsView({ user }) {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Delete this organization? This will NOT delete associated data.')) return;
+    if (!confirm('Delete this organization?')) return;
     try {
       await apiFetch('DELETE', `organizations/${id}`);
       toast.success('Organization deleted');
@@ -73,12 +72,18 @@ export default function OrganizationsView({ user }) {
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <div><h1 className="text-2xl font-bold">Organizations</h1><p className="text-muted-foreground">Manage agencies and their teams</p></div>
+    <div className="space-y-4 sm:space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <div>
+          <h1 className="text-xl sm:text-2xl font-bold">Organizations</h1>
+          <p className="text-sm text-muted-foreground">Manage agencies and teams</p>
+        </div>
         <Dialog open={showDialog} onOpenChange={(open) => { setShowDialog(open); if (!open) { setEditing(null); setForm({ name: '', industry: '', address: '', phone: '' }); } }}>
-          <DialogTrigger asChild><Button><Plus size={16} className="mr-2" /> New Organization</Button></DialogTrigger>
-          <DialogContent>
+          <DialogTrigger asChild>
+            <Button size="sm" className="w-full sm:w-auto"><Plus size={16} className="mr-2" /> New Organization</Button>
+          </DialogTrigger>
+          <DialogContent className="max-w-md">
             <DialogHeader><DialogTitle>{editing ? 'Edit Organization' : 'New Organization'}</DialogTitle></DialogHeader>
             <div className="space-y-4 mt-4">
               <div><Label>Organization Name *</Label><Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Agency name" /></div>
@@ -91,22 +96,28 @@ export default function OrganizationsView({ user }) {
         </Dialog>
       </div>
 
+      {/* Org Grid */}
       {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">{[1,2].map(i => <div key={i} className="h-40 bg-muted animate-pulse rounded-lg" />)}</div>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+          {[1,2].map(i => <div key={i} className="h-32 sm:h-40 bg-muted animate-pulse rounded-lg" />)}
+        </div>
       ) : orgs.length === 0 ? (
-        <div className="text-center py-16 text-muted-foreground"><Building className="mx-auto mb-3" size={40} /><p>No organizations yet</p></div>
+        <div className="text-center py-12 sm:py-16 text-muted-foreground">
+          <Building className="mx-auto mb-3" size={36} />
+          <p>No organizations yet</p>
+        </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
           {orgs.map(org => (
             <Card key={org.id} className="border shadow-sm hover:shadow-md transition-shadow">
-              <CardContent className="pt-6">
-                <div className="flex items-start justify-between mb-4">
+              <CardContent className="p-4 sm:pt-6">
+                <div className="flex items-start justify-between mb-3 sm:mb-4">
                   <div className="flex items-center gap-3">
-                    <div className="w-12 h-12 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center">
-                      <Building className="text-white" size={22} />
+                    <div className="w-10 h-10 sm:w-12 sm:h-12 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center flex-shrink-0">
+                      <Building className="text-white" size={20} />
                     </div>
-                    <div>
-                      <h3 className="font-semibold">{org.name}</h3>
+                    <div className="min-w-0">
+                      <h3 className="font-semibold text-sm sm:text-base truncate">{org.name}</h3>
                       {org.industry && <Badge variant="secondary" className="text-xs mt-1">{org.industry}</Badge>}
                     </div>
                   </div>
@@ -115,11 +126,11 @@ export default function OrganizationsView({ user }) {
                     <button onClick={() => handleDelete(org.id)} className="p-1.5 rounded hover:bg-red-50 text-red-500"><Trash2 size={14} /></button>
                   </div>
                 </div>
-                <div className="flex items-center gap-6 text-sm text-muted-foreground">
+                <div className="flex flex-wrap items-center gap-3 sm:gap-6 text-xs sm:text-sm text-muted-foreground">
                   <span className="flex items-center gap-1.5"><Users size={14} /> {stats[org.id]?.users || 0} members</span>
                   <span className="flex items-center gap-1.5"><Megaphone size={14} /> {stats[org.id]?.campaigns || 0} campaigns</span>
                 </div>
-                {org.address && <p className="text-xs text-muted-foreground mt-2">{org.address}</p>}
+                {org.address && <p className="text-xs text-muted-foreground mt-2 truncate">{org.address}</p>}
               </CardContent>
             </Card>
           ))}

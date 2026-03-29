@@ -60,18 +60,19 @@ export default function ServicesView({ user }) {
   const canManageServices = user.role === 'admin' || user.role === 'super_admin';
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4 sm:space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Service Catalog</h1>
-          <p className="text-muted-foreground">Manage your service offerings and default rates</p>
+          <h1 className="text-xl sm:text-2xl font-bold">Service Catalog</h1>
+          <p className="text-sm text-muted-foreground">Manage service offerings and rates</p>
         </div>
         {canManageServices && (
           <Dialog open={showDialog} onOpenChange={(open) => { setShowDialog(open); if (!open) { setEditing(null); setForm({ name: '', defaultRate: '', description: '' }); } }}>
             <DialogTrigger asChild>
-              <Button><Plus size={16} className="mr-2" /> Add Service</Button>
+              <Button size="sm" className="w-full sm:w-auto"><Plus size={16} className="mr-2" /> Add Service</Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="max-w-md">
               <DialogHeader>
                 <DialogTitle>{editing ? 'Edit Service' : 'New Service'}</DialogTitle>
               </DialogHeader>
@@ -86,23 +87,24 @@ export default function ServicesView({ user }) {
         )}
       </div>
 
+      {/* Service Grid */}
       {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[1,2,3].map(i => <div key={i} className="h-32 bg-muted animate-pulse rounded-lg" />)}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+          {[1,2,3].map(i => <div key={i} className="h-28 sm:h-32 bg-muted animate-pulse rounded-lg" />)}
         </div>
       ) : services.length === 0 ? (
-        <div className="text-center py-16 text-muted-foreground">
-          <Package className="mx-auto mb-3" size={40} />
+        <div className="text-center py-12 sm:py-16 text-muted-foreground">
+          <Package className="mx-auto mb-3" size={36} />
           <p>No services configured</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
           {services.map(svc => (
             <Card key={svc.id} className="border shadow-sm hover:shadow-md transition-shadow">
-              <CardContent className="pt-6">
+              <CardContent className="p-4 sm:pt-6">
                 <div className="flex items-start justify-between mb-3">
-                  <div className="w-10 h-10 bg-indigo-100 rounded-lg flex items-center justify-center">
-                    <Package className="text-indigo-600" size={20} />
+                  <div className="w-9 h-9 sm:w-10 sm:h-10 bg-indigo-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                    <Package className="text-indigo-600" size={18} />
                   </div>
                   {canManageServices && (
                     <div className="flex gap-1">
@@ -111,9 +113,9 @@ export default function ServicesView({ user }) {
                     </div>
                   )}
                 </div>
-                <h3 className="font-semibold text-sm">{svc.name}</h3>
-                <p className="text-2xl font-bold text-blue-600 mt-1">{formatBDT(svc.defaultRate)}</p>
-                {svc.description && <p className="text-xs text-muted-foreground mt-2">{svc.description}</p>}
+                <h3 className="font-semibold text-sm truncate">{svc.name}</h3>
+                <p className="text-xl sm:text-2xl font-bold text-blue-600 mt-1">{formatBDT(svc.defaultRate)}</p>
+                {svc.description && <p className="text-xs text-muted-foreground mt-2 line-clamp-2">{svc.description}</p>}
               </CardContent>
             </Card>
           ))}

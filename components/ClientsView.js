@@ -67,18 +67,19 @@ export default function ClientsView({ user }) {
   const canManageClients = user.role === 'admin' || user.role === 'super_admin';
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4 sm:space-y-6">
+      {/* Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">Clients</h1>
-          <p className="text-muted-foreground">Manage your client companies</p>
+          <h1 className="text-xl sm:text-2xl font-bold">Clients</h1>
+          <p className="text-sm text-muted-foreground">Manage your client companies</p>
         </div>
         {canManageClients && (
           <Dialog open={showDialog} onOpenChange={(open) => { setShowDialog(open); if (!open) { setEditingClient(null); setForm({ name: '', contactPerson: '', email: '', phone: '', industry: '' }); } }}>
             <DialogTrigger asChild>
-              <Button><Plus size={16} className="mr-2" /> Add Client</Button>
+              <Button size="sm" className="w-full sm:w-auto"><Plus size={16} className="mr-2" /> Add Client</Button>
             </DialogTrigger>
-            <DialogContent>
+            <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>{editingClient ? 'Edit Client' : 'New Client'}</DialogTitle>
               </DialogHeader>
@@ -95,28 +96,30 @@ export default function ClientsView({ user }) {
         )}
       </div>
 
+      {/* Search */}
       <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={18} />
-        <Input className="pl-10" placeholder="Search clients..." value={search} onChange={e => setSearch(e.target.value)} />
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} />
+        <Input className="pl-9" placeholder="Search clients..." value={search} onChange={e => setSearch(e.target.value)} />
       </div>
 
+      {/* Client Grid */}
       {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[1,2,3].map(i => <div key={i} className="h-48 bg-muted animate-pulse rounded-lg" />)}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
+          {[1,2,3].map(i => <div key={i} className="h-40 sm:h-48 bg-muted animate-pulse rounded-lg" />)}
         </div>
       ) : filtered.length === 0 ? (
-        <div className="text-center py-16 text-muted-foreground">
-          <Building2 className="mx-auto mb-3" size={40} />
+        <div className="text-center py-12 sm:py-16 text-muted-foreground">
+          <Building2 className="mx-auto mb-3" size={36} />
           <p>No clients found</p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4">
           {filtered.map(client => (
             <Card key={client.id} className="border shadow-sm hover:shadow-md transition-shadow">
-              <CardContent className="pt-6">
+              <CardContent className="p-4 sm:pt-6">
                 <div className="flex items-start justify-between mb-3">
-                  <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center">
-                    <Building2 className="text-blue-600" size={20} />
+                  <div className="w-9 h-9 sm:w-10 sm:h-10 bg-blue-100 rounded-lg flex items-center justify-center flex-shrink-0">
+                    <Building2 className="text-blue-600" size={18} />
                   </div>
                   {canManageClients && (
                     <div className="flex gap-1">
@@ -125,12 +128,12 @@ export default function ClientsView({ user }) {
                     </div>
                   )}
                 </div>
-                <h3 className="font-semibold text-sm mb-1">{client.name}</h3>
+                <h3 className="font-semibold text-sm mb-1 truncate">{client.name}</h3>
                 {client.industry && <Badge variant="secondary" className="mb-3 text-xs">{client.industry}</Badge>}
                 <div className="space-y-1.5 text-xs text-muted-foreground">
-                  {client.contactPerson && <div className="flex items-center gap-2"><User size={12} /> {client.contactPerson}</div>}
-                  {client.email && <div className="flex items-center gap-2"><Mail size={12} /> {client.email}</div>}
-                  {client.phone && <div className="flex items-center gap-2"><Phone size={12} /> {client.phone}</div>}
+                  {client.contactPerson && <div className="flex items-center gap-2 truncate"><User size={11} /> {client.contactPerson}</div>}
+                  {client.email && <div className="flex items-center gap-2 truncate"><Mail size={11} /> {client.email}</div>}
+                  {client.phone && <div className="flex items-center gap-2"><Phone size={11} /> {client.phone}</div>}
                 </div>
               </CardContent>
             </Card>
