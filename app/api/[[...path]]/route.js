@@ -523,10 +523,18 @@ async function handleCampaigns(request, id, method) {
     const updateFields = {};
     if (data.name !== undefined) updateFields.name = data.name;
     if (data.status !== undefined) updateFields.status = data.status;
+    if (data.type !== undefined) updateFields.type = data.type;
     if (data.startDate !== undefined) updateFields.startDate = data.startDate;
     if (data.endDate !== undefined) updateFields.endDate = data.endDate;
     if (data.assignedTo !== undefined) updateFields.assignedTo = data.assignedTo;
     if (data.isRenewable !== undefined) updateFields.isRenewable = data.isRenewable;
+    if (data.clientId !== undefined) {
+      const newClient = await db.collection('clients').findOne({ id: data.clientId });
+      if (newClient) {
+        updateFields.clientId = data.clientId;
+        updateFields.clientName = newClient.name;
+      }
+    }
     updateFields.updatedAt = new Date();
     await db.collection('campaigns').updateOne({ id }, { $set: updateFields });
     const campaign = await db.collection('campaigns').findOne({ id });
