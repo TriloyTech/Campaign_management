@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Switch } from '@/components/ui/switch';
 import { apiFetch, formatBDT, getStatusColor, getStatusLabel } from '@/lib/api';
 import { toast } from 'sonner';
-import { ArrowLeft, Calendar, ExternalLink, CheckCircle, Clock, Play, Eye, Link2, Plus, Trash2, Pencil, RefreshCw, Settings, Package } from 'lucide-react';
+import { ArrowLeft, Calendar, ExternalLink, CheckCircle, Clock, Play, Eye, Link2, Plus, Trash2, Pencil, RefreshCw, Settings, Package, Building2, Home, DollarSign } from 'lucide-react';
 
 const STATUS_OPTIONS = [
   { value: 'pending', label: 'Pending', icon: Clock, color: 'text-gray-400' },
@@ -25,6 +25,8 @@ export default function CampaignDetail({ campaignId, user, navigate }) {
   const [deliverables, setDeliverables] = useState([]);
   const [services, setServices] = useState([]);
   const [clients, setClients] = useState([]);
+  const [agencies, setAgencies] = useState([]);
+  const [agencyRates, setAgencyRates] = useState({});
   const [loading, setLoading] = useState(true);
   const [proofDialog, setProofDialog] = useState(null);
   const [proofUrl, setProofUrl] = useState('');
@@ -34,6 +36,10 @@ export default function CampaignDetail({ campaignId, user, navigate }) {
   const [renewMonth, setRenewMonth] = useState('');
   const [newDeliverable, setNewDeliverable] = useState({ serviceName: '', rate: '', month: '' });
   const [selectedMonth, setSelectedMonth] = useState('all');
+  
+  // Agency Assignment Dialog
+  const [assignAgencyDialog, setAssignAgencyDialog] = useState(null);
+  const [assignmentForm, setAssignmentForm] = useState({ type: 'in_house', agencyId: '', agencyRate: '' });
   
   // Edit Campaign Dialog
   const [editCampaignDialog, setEditCampaignDialog] = useState(false);
@@ -45,6 +51,7 @@ export default function CampaignDetail({ campaignId, user, navigate }) {
     loadCampaign(); 
     loadServices();
     loadClients();
+    loadAgencies();
   }, [campaignId]);
 
   const loadCampaign = async () => {
@@ -71,12 +78,70 @@ export default function CampaignDetail({ campaignId, user, navigate }) {
     } catch (err) { console.error(err); }
   };
 
+  const loadAgencies = async () => {
+    try {
+      const res = await apiFetch('GET', 'agencies');
+      setAgencies(res.agencies || []);
+      // Load rates for each agency
+      const ratesMap = {};
+      for (const agency of (res.agencies || [])) {
+        try {
+          const ratesRes = await apiFetch('GET', `agencies/${agency.id}/rates`);
+          ratesMap[agency.id] = ratesRes.rates || [];
+        } catch (e) { ratesMap[agency.id] = []; }
+      }
+      setAgencyRates(ratesMap);
+    } catch (err) { console.error(err); }
+  };
+
   const updateStatus = async (deliverable, newStatus) => {
     try {
       await apiFetch('PUT', `deliverables/${deliverable.id}`, { status: newStatus });
       toast.success(`Updated to ${getStatusLabel(newStatus)}`);
       loadCampaign();
     } catch (err) { toast.error(err.message); }
+  };
+
+  // Open agency assignment dialog
+  const openAssignAgency = (deliverable) => {
+    setAssignAgencyDialog(deliverable);
+    setAssignmentForm({
+      type: deliverable.agencyId ? 'outsourced' : 'in_house',
+      agencyId: deliverable.agencyId || '',
+      agencyRate: deliverable.agencyRate || ''
+    });
+  };
+
+  // Save agency assignment
+  const saveAgencyAssignment = async () => {
+    try {
+      const payload = {
+        assignmentType: assignmentForm.type,
+        agencyId: assignmentForm.type === 'outsourced' ? assignmentForm.agencyId : null,
+        agencyRate: assignmentForm.type === 'outsourced' && assignmentForm.agencyRate ? Number(assignmentForm.agencyRate) : null
+      };
+      await apiFetch('PUT', `deliverables/${assignAgencyDialog.id}`, payload);
+      toast.success(assignmentForm.type === 'outsourced' ? 'Assigned to agency' : 'Marked as in-house');
+      setAssignAgencyDialog(null);
+      loadCampaign();
+    } catch (err) { toast.error(err.message); }
+  };
+
+  // Get default agency rate for a service
+  const getDefaultAgencyRate = (agencyId, serviceName) => {
+    const rates = agencyRates[agencyId] || [];
+    const rate = rates.find(r => r.serviceName === serviceName);
+    return rate?.rate || '';
+  };
+
+  // When agency changes, auto-fill rate
+  const handleAgencyChange = (agencyId) => {
+    const defaultRate = getDefaultAgencyRate(agencyId, assignAgencyDialog?.serviceName);
+    setAssignmentForm({
+      ...assignmentForm,
+      agencyId,
+      agencyRate: defaultRate || assignmentForm.agencyRate
+    });
   };
 
   const submitProof = async () => {
@@ -493,44 +558,63 @@ export default function CampaignDetail({ campaignId, user, navigate }) {
                     <span className="text-xs text-muted-foreground flex-shrink-0 ml-2">{items.filter(d => d.status === 'delivered').length}/{items.length}</span>
                   </div>
                   <div className="divide-y">
-                    {items.sort((a, b) => a.unitIndex - b.unitIndex).map(d => (
-                      <div key={d.id} className="px-3 sm:px-4 py-2 sm:py-3 hover:bg-muted/30">
-                        <div className="flex flex-col sm:flex-row sm:items-center gap-2">
-                          <div className="flex items-center gap-2 flex-1 min-w-0">
-                            {getStatusIcon(d.status)}
-                            <span className="text-xs sm:text-sm font-medium">#{d.unitIndex}</span>
-                            {d.month && <Badge variant="outline" className="text-xs">{d.month}</Badge>}
-                            {canViewFinancials && <span className="text-xs text-muted-foreground">{formatBDT(d.rate)}</span>}
-                            {d.proofUrl && (
-                              <a href={d.proofUrl} target="_blank" rel="noopener" className="text-blue-600 hover:underline flex items-center gap-1 text-xs">
-                                <ExternalLink size={10} /> Proof
-                              </a>
-                            )}
-                          </div>
-                          <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
-                            <Select value={d.status} onValueChange={(v) => updateStatus(d, v)}>
-                              <SelectTrigger className="w-24 sm:w-28 h-7 text-xs"><SelectValue /></SelectTrigger>
-                              <SelectContent>
-                                {STATUS_OPTIONS.map(opt => <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>)}
-                              </SelectContent>
-                            </Select>
-                            <button onClick={() => { setProofDialog(d); setProofUrl(d.proofUrl || ''); }} className="p-1 sm:p-1.5 hover:bg-muted rounded" title="Add proof link">
-                              <Link2 size={12} />
-                            </button>
-                            {canEditCampaign && (
-                              <>
-                                <button onClick={() => setEditDeliverableDialog({ ...d })} className="p-1 sm:p-1.5 hover:bg-muted rounded" title="Edit">
-                                  <Pencil size={12} />
-                                </button>
-                                <button onClick={() => deleteDeliverable(d.id)} className="p-1 sm:p-1.5 hover:bg-red-50 text-red-500 rounded" title="Delete">
-                                  <Trash2 size={12} />
-                                </button>
-                              </>
-                            )}
+                    {items.sort((a, b) => a.unitIndex - b.unitIndex).map(d => {
+                      const assignedAgency = agencies.find(a => a.id === d.agencyId);
+                      return (
+                        <div key={d.id} className="px-3 sm:px-4 py-2 sm:py-3 hover:bg-muted/30">
+                          <div className="flex flex-col sm:flex-row sm:items-center gap-2">
+                            <div className="flex items-center gap-2 flex-1 min-w-0 flex-wrap">
+                              {getStatusIcon(d.status)}
+                              <span className="text-xs sm:text-sm font-medium">#{d.unitIndex}</span>
+                              {d.month && <Badge variant="outline" className="text-xs">{d.month}</Badge>}
+                              {canViewFinancials && <span className="text-xs text-muted-foreground">{formatBDT(d.rate)}</span>}
+                              
+                              {/* Agency Assignment Badge */}
+                              {d.agencyId && assignedAgency ? (
+                                <Badge className="text-xs bg-amber-100 text-amber-800 flex items-center gap-1">
+                                  <Building2 size={10} /> {assignedAgency.name}
+                                  {d.agencyRate && <span className="ml-1">({formatBDT(d.agencyRate)})</span>}
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-xs text-emerald-600 border-emerald-200 flex items-center gap-1">
+                                  <Home size={10} /> In-House
+                                </Badge>
+                              )}
+                              
+                              {d.proofUrl && (
+                                <a href={d.proofUrl} target="_blank" rel="noopener" className="text-blue-600 hover:underline flex items-center gap-1 text-xs">
+                                  <ExternalLink size={10} /> Proof
+                                </a>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-1 sm:gap-2 flex-wrap">
+                              <Select value={d.status} onValueChange={(v) => updateStatus(d, v)}>
+                                <SelectTrigger className="w-24 sm:w-28 h-7 text-xs"><SelectValue /></SelectTrigger>
+                                <SelectContent>
+                                  {STATUS_OPTIONS.map(opt => <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>)}
+                                </SelectContent>
+                              </Select>
+                              <button onClick={() => { setProofDialog(d); setProofUrl(d.proofUrl || ''); }} className="p-1 sm:p-1.5 hover:bg-muted rounded" title="Add proof link">
+                                <Link2 size={12} />
+                              </button>
+                              {canEditCampaign && (
+                                <>
+                                  <button onClick={() => openAssignAgency(d)} className="p-1 sm:p-1.5 hover:bg-amber-50 text-amber-600 rounded" title="Assign Agency">
+                                    <Building2 size={12} />
+                                  </button>
+                                  <button onClick={() => setEditDeliverableDialog({ ...d })} className="p-1 sm:p-1.5 hover:bg-muted rounded" title="Edit">
+                                    <Pencil size={12} />
+                                  </button>
+                                  <button onClick={() => deleteDeliverable(d.id)} className="p-1 sm:p-1.5 hover:bg-red-50 text-red-500 rounded" title="Delete">
+                                    <Trash2 size={12} />
+                                  </button>
+                                </>
+                              )}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 </div>
               ))}
@@ -570,6 +654,87 @@ export default function CampaignDetail({ campaignId, user, navigate }) {
                 <Input type="month" value={editDeliverableDialog.month || ''} onChange={e => setEditDeliverableDialog({ ...editDeliverableDialog, month: e.target.value })} />
               </div>
               <Button onClick={updateDeliverable} className="w-full">Update Deliverable</Button>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Agency Assignment Dialog */}
+      <Dialog open={!!assignAgencyDialog} onOpenChange={() => setAssignAgencyDialog(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Building2 size={18} /> Assign Deliverable
+            </DialogTitle>
+          </DialogHeader>
+          {assignAgencyDialog && (
+            <div className="space-y-4 mt-4">
+              <div className="p-3 bg-muted/50 rounded-lg">
+                <p className="font-medium text-sm">{assignAgencyDialog.serviceName} #{assignAgencyDialog.unitIndex}</p>
+                <p className="text-xs text-muted-foreground">Client Rate: {formatBDT(assignAgencyDialog.rate)}</p>
+              </div>
+
+              <div>
+                <Label>Assignment Type</Label>
+                <div className="grid grid-cols-2 gap-2 mt-2">
+                  <button
+                    type="button"
+                    onClick={() => setAssignmentForm({...assignmentForm, type: 'in_house'})}
+                    className={`p-3 rounded-lg border-2 text-sm transition-all ${assignmentForm.type === 'in_house' ? 'border-emerald-500 bg-emerald-50' : 'border-gray-200 hover:border-gray-300'}`}
+                  >
+                    <Home size={18} className={`mx-auto mb-1 ${assignmentForm.type === 'in_house' ? 'text-emerald-600' : 'text-gray-400'}`} />
+                    <span className={assignmentForm.type === 'in_house' ? 'text-emerald-700 font-medium' : 'text-gray-600'}>In-House</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAssignmentForm({...assignmentForm, type: 'outsourced'})}
+                    className={`p-3 rounded-lg border-2 text-sm transition-all ${assignmentForm.type === 'outsourced' ? 'border-amber-500 bg-amber-50' : 'border-gray-200 hover:border-gray-300'}`}
+                  >
+                    <Building2 size={18} className={`mx-auto mb-1 ${assignmentForm.type === 'outsourced' ? 'text-amber-600' : 'text-gray-400'}`} />
+                    <span className={assignmentForm.type === 'outsourced' ? 'text-amber-700 font-medium' : 'text-gray-600'}>Outsourced</span>
+                  </button>
+                </div>
+              </div>
+
+              {assignmentForm.type === 'outsourced' && (
+                <>
+                  <div>
+                    <Label>Select Agency</Label>
+                    <Select value={assignmentForm.agencyId} onValueChange={handleAgencyChange}>
+                      <SelectTrigger><SelectValue placeholder="Choose agency" /></SelectTrigger>
+                      <SelectContent>
+                        {agencies.map(a => <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  <div>
+                    <Label>Agency Rate (BDT)</Label>
+                    <Input 
+                      type="number" 
+                      value={assignmentForm.agencyRate} 
+                      onChange={e => setAssignmentForm({...assignmentForm, agencyRate: e.target.value})}
+                      placeholder="Cost to pay agency"
+                    />
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Profit margin: {formatBDT(assignAgencyDialog.rate - (Number(assignmentForm.agencyRate) || 0))}
+                    </p>
+                  </div>
+                </>
+              )}
+
+              {assignmentForm.type === 'in_house' && (
+                <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200">
+                  <p className="text-sm text-emerald-700">
+                    <CheckCircle size={14} className="inline mr-1" />
+                    No external cost will be recorded for this deliverable.
+                  </p>
+                </div>
+              )}
+
+              <Button onClick={saveAgencyAssignment} className="w-full">
+                {assignmentForm.type === 'outsourced' ? 'Assign to Agency' : 'Mark as In-House'}
+              </Button>
             </div>
           )}
         </DialogContent>

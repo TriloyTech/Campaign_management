@@ -12,6 +12,8 @@ import CampaignDetail from '@/components/CampaignDetail';
 import TeamView from '@/components/TeamView';
 import AuditLogView from '@/components/AuditLogView';
 import OrganizationsView from '@/components/OrganizationsView';
+import AgenciesView from '@/components/AgenciesView';
+import AgencyDetail from '@/components/AgencyDetail';
 import OrgSelector from '@/components/OrgSelector';
 import ProfileView from '@/components/ProfileView';
 import ReportsView from '@/components/ReportsView';
@@ -166,6 +168,8 @@ export default function App() {
       case 'campaigns': return <CampaignsView key={viewKey} user={user} navigate={navigate} />;
       case 'campaign-create': return <CampaignCreate key={viewKey} user={user} navigate={navigate} />;
       case 'campaign-detail': return <CampaignDetail key={viewKey} campaignId={viewParams.id} user={user} navigate={navigate} />;
+      case 'agencies': return <AgenciesView key={viewKey} user={user} navigate={navigate} />;
+      case 'agency-detail': return <AgencyDetail key={viewKey} agencyId={viewParams.id} user={user} navigate={navigate} />;
       case 'team': return <TeamView key={viewKey} user={user} />;
       case 'audit-log': return <AuditLogView key={viewKey} user={user} />;
       case 'profile': return <ProfileView key={viewKey} user={user} onUserUpdate={handleUserUpdate} />;

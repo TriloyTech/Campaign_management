@@ -673,6 +673,33 @@ async function handleDeliverables(request, id, method) {
       if (data.serviceName !== undefined) updateData.serviceName = data.serviceName;
       if (data.rate !== undefined) updateData.rate = Number(data.rate);
       if (data.month !== undefined) updateData.month = data.month;
+      
+      // Agency assignment fields
+      if (data.assignmentType !== undefined) updateData.assignmentType = data.assignmentType;
+      if (data.agencyId !== undefined) {
+        updateData.agencyId = data.agencyId || null;
+        // If assigning to agency, get the agency rate
+        if (data.agencyId) {
+          // Check if custom rate provided, otherwise use agency's default rate
+          if (data.agencyRate !== undefined) {
+            updateData.agencyRate = Number(data.agencyRate);
+          } else {
+            const agencyRate = await db.collection('agency_rates').findOne({ 
+              agencyId: data.agencyId, 
+              serviceName: deliverable.serviceName 
+            });
+            if (agencyRate) {
+              updateData.agencyRate = agencyRate.rate;
+            }
+          }
+        } else {
+          // Removing agency assignment
+          updateData.agencyRate = null;
+        }
+      }
+      if (data.agencyRate !== undefined && data.agencyId) {
+        updateData.agencyRate = Number(data.agencyRate);
+      }
     }
     
     await db.collection('deliverables').updateOne({ id }, { $set: updateData });
@@ -683,11 +710,19 @@ async function handleDeliverables(request, id, method) {
       const rt = d.id === id ? (data.rate !== undefined ? Number(data.rate) : d.rate) : d.rate;
       return sum + (st === 'delivered' ? rt : 0);
     }, 0);
-    await db.collection('campaigns').updateOne({ id: deliverable.campaignId }, { $set: { totalProjected, totalEarned, updatedAt: new Date() } });
+    
+    // Calculate agency cost for the campaign
+    const totalAgencyCost = allDeliverables.reduce((sum, d) => {
+      const st = d.id === id ? (data.status || d.status) : d.status;
+      const agencyRate = d.id === id ? (updateData.agencyRate !== undefined ? updateData.agencyRate : d.agencyRate) : d.agencyRate;
+      return sum + (st === 'delivered' && agencyRate ? agencyRate : 0);
+    }, 0);
+    
+    await db.collection('campaigns').updateOne({ id: deliverable.campaignId }, { $set: { totalProjected, totalEarned, totalAgencyCost, updatedAt: new Date() } });
     
     const campaign = await db.collection('campaigns').findOne({ id: deliverable.campaignId });
     await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: campaign?.organizationId || user.organizationId, userId: user.id, userName: user.name, action: 'updated', entityType: 'deliverable', entityId: id, details: `Updated "${deliverable.serviceName} #${deliverable.unitIndex}" to ${data.status || 'updated'}`, createdAt: new Date() });
-    return json({ success: true, totalProjected, totalEarned });
+    return json({ success: true, totalProjected, totalEarned, totalAgencyCost });
   }
 
   // Delete deliverable (Admin/Super Admin only)
@@ -1382,6 +1417,462 @@ async function handleLineItems(request, id, method) {
   return json({ error: 'Not found' }, 404);
 }
 
+// ============ AGENCIES ============
+async function handleAgencies(request, id, subResource, method) {
+  const user = await getUserWithOrgs(request);
+  if (!user) return json({ error: 'Unauthorized' }, 401);
+  if (user.role === 'team_member') return json({ error: 'Not authorized' }, 403);
+  const db = await getDb();
+  const orgId = getOrgId(user, request);
+
+  // Handle sub-resources: rates, invoices, dashboard
+  if (subResource === 'rates') {
+    return handleAgencyRates(request, id, method, user, db);
+  }
+  if (subResource === 'invoices') {
+    return handleAgencyInvoices(request, id, method, user, db);
+  }
+  if (id === 'dashboard') {
+    return handleAgencyDashboard(request, method, user, db, orgId);
+  }
+
+  // List agencies
+  if (method === 'GET' && !id) {
+    let filter = {};
+    if (orgId) {
+      filter.organizationId = orgId;
+    } else if (user.role !== 'super_admin') {
+      const userOrgIds = getUserOrgIds(user);
+      if (userOrgIds && userOrgIds.length > 0) {
+        filter.organizationId = { $in: userOrgIds };
+      }
+    }
+    const agencies = await db.collection('agencies').find(filter).sort({ name: 1 }).limit(200).toArray();
+    
+    // Get stats for each agency
+    for (const agency of agencies) {
+      const deliverables = await db.collection('deliverables').find({ agencyId: agency.id }).toArray();
+      agency.totalDeliverables = deliverables.length;
+      agency.completedDeliverables = deliverables.filter(d => d.status === 'delivered').length;
+      agency.totalPayable = deliverables.filter(d => d.status === 'delivered').reduce((sum, d) => sum + (d.agencyRate || 0), 0);
+    }
+    
+    return json({ agencies });
+  }
+
+  // Get single agency with details
+  if (method === 'GET' && id) {
+    const agency = await db.collection('agencies').findOne({ id });
+    if (!agency) return json({ error: 'Agency not found' }, 404);
+    
+    // Get agency rates
+    const rates = await db.collection('agency_rates').find({ agencyId: id }).toArray();
+    
+    // Get deliverables assigned to this agency
+    const deliverables = await db.collection('deliverables').find({ agencyId: id }).sort({ createdAt: -1 }).limit(100).toArray();
+    
+    // Get campaign info for deliverables
+    const campaignIds = [...new Set(deliverables.map(d => d.campaignId))];
+    const campaigns = await db.collection('campaigns').find({ id: { $in: campaignIds } }).toArray();
+    const campaignMap = {};
+    campaigns.forEach(c => campaignMap[c.id] = c);
+    
+    deliverables.forEach(d => {
+      d.campaignName = campaignMap[d.campaignId]?.name || 'Unknown';
+      d.clientName = campaignMap[d.campaignId]?.clientName || 'Unknown';
+    });
+    
+    // Get invoices
+    const invoices = await db.collection('agency_invoices').find({ agencyId: id }).sort({ createdAt: -1 }).limit(50).toArray();
+    
+    // Calculate stats
+    const stats = {
+      totalDeliverables: deliverables.length,
+      completedDeliverables: deliverables.filter(d => d.status === 'delivered').length,
+      pendingDeliverables: deliverables.filter(d => d.status !== 'delivered').length,
+      totalPayable: deliverables.filter(d => d.status === 'delivered').reduce((sum, d) => sum + (d.agencyRate || 0), 0),
+      totalInvoiced: invoices.filter(i => i.status !== 'draft').reduce((sum, i) => sum + i.totalAmount, 0),
+      totalPaid: invoices.filter(i => i.status === 'paid').reduce((sum, i) => sum + i.totalAmount, 0)
+    };
+    
+    return json({ agency, rates, deliverables, invoices, stats });
+  }
+
+  // Create agency
+  if (method === 'POST') {
+    const data = await request.json();
+    const { name, contactPerson, email, phone, address, notes } = data;
+    if (!name) return json({ error: 'Agency name is required' }, 400);
+    
+    const targetOrg = orgId || user.organizationId;
+    const agency = {
+      id: uuidv4(),
+      organizationId: targetOrg,
+      name,
+      contactPerson: contactPerson || '',
+      email: email || '',
+      phone: phone || '',
+      address: address || '',
+      notes: notes || '',
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    
+    await db.collection('agencies').insertOne(agency);
+    await db.collection('activity_logs').insertOne({
+      id: uuidv4(), organizationId: targetOrg, userId: user.id, userName: user.name,
+      action: 'created', entityType: 'agency', entityId: agency.id,
+      details: `Created agency "${name}"`, createdAt: new Date()
+    });
+    
+    return json({ agency }, 201);
+  }
+
+  // Update agency
+  if (method === 'PUT' && id) {
+    const data = await request.json();
+    const updateFields = { updatedAt: new Date() };
+    if (data.name !== undefined) updateFields.name = data.name;
+    if (data.contactPerson !== undefined) updateFields.contactPerson = data.contactPerson;
+    if (data.email !== undefined) updateFields.email = data.email;
+    if (data.phone !== undefined) updateFields.phone = data.phone;
+    if (data.address !== undefined) updateFields.address = data.address;
+    if (data.notes !== undefined) updateFields.notes = data.notes;
+    
+    await db.collection('agencies').updateOne({ id }, { $set: updateFields });
+    const agency = await db.collection('agencies').findOne({ id });
+    
+    await db.collection('activity_logs').insertOne({
+      id: uuidv4(), organizationId: agency?.organizationId, userId: user.id, userName: user.name,
+      action: 'updated', entityType: 'agency', entityId: id,
+      details: `Updated agency "${agency?.name}"`, createdAt: new Date()
+    });
+    
+    return json({ agency });
+  }
+
+  // Delete agency
+  if (method === 'DELETE' && id) {
+    const agency = await db.collection('agencies').findOne({ id });
+    if (!agency) return json({ error: 'Agency not found' }, 404);
+    
+    // Check if agency has deliverables
+    const deliverableCount = await db.collection('deliverables').countDocuments({ agencyId: id });
+    if (deliverableCount > 0) {
+      return json({ error: 'Cannot delete agency with assigned deliverables' }, 400);
+    }
+    
+    await db.collection('agencies').deleteOne({ id });
+    await db.collection('agency_rates').deleteMany({ agencyId: id });
+    
+    await db.collection('activity_logs').insertOne({
+      id: uuidv4(), organizationId: agency.organizationId, userId: user.id, userName: user.name,
+      action: 'deleted', entityType: 'agency', entityId: id,
+      details: `Deleted agency "${agency.name}"`, createdAt: new Date()
+    });
+    
+    return json({ success: true });
+  }
+
+  return json({ error: 'Not found' }, 404);
+}
+
+// ============ AGENCY RATES ============
+async function handleAgencyRates(request, agencyId, method, user, db) {
+  // Get all rates for an agency
+  if (method === 'GET') {
+    const rates = await db.collection('agency_rates').find({ agencyId }).toArray();
+    return json({ rates });
+  }
+
+  // Create/update rate
+  if (method === 'POST') {
+    const data = await request.json();
+    const { serviceName, rate } = data;
+    if (!serviceName || rate === undefined) {
+      return json({ error: 'Service name and rate are required' }, 400);
+    }
+    
+    // Check if rate already exists for this service
+    const existing = await db.collection('agency_rates').findOne({ agencyId, serviceName });
+    if (existing) {
+      await db.collection('agency_rates').updateOne(
+        { id: existing.id },
+        { $set: { rate: Number(rate), updatedAt: new Date() } }
+      );
+      return json({ rate: { ...existing, rate: Number(rate) } });
+    }
+    
+    const newRate = {
+      id: uuidv4(),
+      agencyId,
+      serviceName,
+      rate: Number(rate),
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    await db.collection('agency_rates').insertOne(newRate);
+    return json({ rate: newRate }, 201);
+  }
+
+  // Delete rate
+  if (method === 'DELETE') {
+    const url = new URL(request.url);
+    const rateId = url.searchParams.get('rateId');
+    if (!rateId) return json({ error: 'Rate ID required' }, 400);
+    
+    await db.collection('agency_rates').deleteOne({ id: rateId });
+    return json({ success: true });
+  }
+
+  return json({ error: 'Not found' }, 404);
+}
+
+// ============ AGENCY INVOICES ============
+async function handleAgencyInvoices(request, agencyId, method, user, db) {
+  const url = new URL(request.url);
+
+  // Get invoices
+  if (method === 'GET') {
+    let filter = { agencyId };
+    const campaignId = url.searchParams.get('campaignId');
+    if (campaignId) filter.campaignId = campaignId;
+    
+    const invoices = await db.collection('agency_invoices').find(filter).sort({ createdAt: -1 }).limit(100).toArray();
+    return json({ invoices });
+  }
+
+  // Generate invoice
+  if (method === 'POST') {
+    const data = await request.json();
+    const { campaignId, periodStart, periodEnd, deliverableIds } = data;
+    
+    const agency = await db.collection('agencies').findOne({ id: agencyId });
+    if (!agency) return json({ error: 'Agency not found' }, 404);
+    
+    // Build filter for deliverables
+    let deliverableFilter = {
+      agencyId,
+      status: 'delivered'
+    };
+    
+    if (deliverableIds && deliverableIds.length > 0) {
+      // Specific deliverables
+      deliverableFilter.id = { $in: deliverableIds };
+    } else if (campaignId) {
+      // Per-campaign invoice
+      deliverableFilter.campaignId = campaignId;
+    } else if (periodStart && periodEnd) {
+      // Period-based invoice
+      deliverableFilter.updatedAt = {
+        $gte: new Date(periodStart),
+        $lte: new Date(periodEnd)
+      };
+    }
+    
+    // Exclude already invoiced deliverables
+    deliverableFilter.invoiceId = { $exists: false };
+    
+    const deliverables = await db.collection('deliverables').find(deliverableFilter).toArray();
+    
+    if (deliverables.length === 0) {
+      return json({ error: 'No uninvoiced delivered items found' }, 400);
+    }
+    
+    // Calculate total
+    const totalAmount = deliverables.reduce((sum, d) => sum + (d.agencyRate || 0), 0);
+    
+    // Generate invoice number
+    const invoiceCount = await db.collection('agency_invoices').countDocuments({ organizationId: agency.organizationId });
+    const invoiceNumber = `INV-${agency.organizationId.substring(0, 4).toUpperCase()}-${String(invoiceCount + 1).padStart(5, '0')}`;
+    
+    // Get campaign info if campaign-specific
+    let campaignName = null;
+    if (campaignId) {
+      const campaign = await db.collection('campaigns').findOne({ id: campaignId });
+      campaignName = campaign?.name;
+    }
+    
+    const invoice = {
+      id: uuidv4(),
+      invoiceNumber,
+      agencyId,
+      agencyName: agency.name,
+      organizationId: agency.organizationId,
+      campaignId: campaignId || null,
+      campaignName,
+      periodStart: periodStart || null,
+      periodEnd: periodEnd || null,
+      deliverableIds: deliverables.map(d => d.id),
+      deliverableCount: deliverables.length,
+      totalAmount,
+      status: 'draft',
+      createdBy: user.id,
+      createdByName: user.name,
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    
+    await db.collection('agency_invoices').insertOne(invoice);
+    
+    // Mark deliverables as invoiced
+    await db.collection('deliverables').updateMany(
+      { id: { $in: deliverables.map(d => d.id) } },
+      { $set: { invoiceId: invoice.id, invoicedAt: new Date() } }
+    );
+    
+    await db.collection('activity_logs').insertOne({
+      id: uuidv4(), organizationId: agency.organizationId, userId: user.id, userName: user.name,
+      action: 'created', entityType: 'agency_invoice', entityId: invoice.id,
+      details: `Generated invoice ${invoiceNumber} for ${agency.name} - ${totalAmount} BDT`, createdAt: new Date()
+    });
+    
+    return json({ invoice }, 201);
+  }
+
+  // Update invoice status
+  if (method === 'PUT') {
+    const invoiceId = url.searchParams.get('invoiceId');
+    if (!invoiceId) return json({ error: 'Invoice ID required' }, 400);
+    
+    const data = await request.json();
+    const updateFields = { updatedAt: new Date() };
+    
+    if (data.status !== undefined) {
+      updateFields.status = data.status;
+      if (data.status === 'paid') {
+        updateFields.paidAt = new Date();
+      }
+    }
+    if (data.notes !== undefined) updateFields.notes = data.notes;
+    
+    await db.collection('agency_invoices').updateOne({ id: invoiceId }, { $set: updateFields });
+    const invoice = await db.collection('agency_invoices').findOne({ id: invoiceId });
+    
+    return json({ invoice });
+  }
+
+  // Delete draft invoice
+  if (method === 'DELETE') {
+    const invoiceId = url.searchParams.get('invoiceId');
+    if (!invoiceId) return json({ error: 'Invoice ID required' }, 400);
+    
+    const invoice = await db.collection('agency_invoices').findOne({ id: invoiceId });
+    if (!invoice) return json({ error: 'Invoice not found' }, 404);
+    if (invoice.status !== 'draft') {
+      return json({ error: 'Only draft invoices can be deleted' }, 400);
+    }
+    
+    // Unmark deliverables
+    await db.collection('deliverables').updateMany(
+      { invoiceId },
+      { $unset: { invoiceId: '', invoicedAt: '' } }
+    );
+    
+    await db.collection('agency_invoices').deleteOne({ id: invoiceId });
+    return json({ success: true });
+  }
+
+  return json({ error: 'Not found' }, 404);
+}
+
+// ============ AGENCY DASHBOARD ============
+async function handleAgencyDashboard(request, method, user, db, orgId) {
+  if (method !== 'GET') return json({ error: 'Method not allowed' }, 405);
+  
+  let filter = {};
+  if (orgId) {
+    filter.organizationId = orgId;
+  } else if (user.role !== 'super_admin') {
+    const userOrgIds = getUserOrgIds(user);
+    if (userOrgIds && userOrgIds.length > 0) {
+      filter.organizationId = { $in: userOrgIds };
+    }
+  }
+  
+  const agencies = await db.collection('agencies').find(filter).toArray();
+  const agencyIds = agencies.map(a => a.id);
+  
+  // Get all outsourced deliverables
+  const deliverables = await db.collection('deliverables').find({
+    agencyId: { $in: agencyIds }
+  }).toArray();
+  
+  // Get all invoices
+  const invoices = await db.collection('agency_invoices').find({
+    agencyId: { $in: agencyIds }
+  }).toArray();
+  
+  // Calculate totals
+  const totalAgencies = agencies.length;
+  const totalOutsourcedDeliverables = deliverables.length;
+  const completedOutsourced = deliverables.filter(d => d.status === 'delivered').length;
+  const totalAgencyCost = deliverables.filter(d => d.status === 'delivered').reduce((sum, d) => sum + (d.agencyRate || 0), 0);
+  const totalInvoiced = invoices.filter(i => i.status !== 'draft').reduce((sum, i) => sum + i.totalAmount, 0);
+  const totalPaid = invoices.filter(i => i.status === 'paid').reduce((sum, i) => sum + i.totalAmount, 0);
+  const pendingPayment = totalInvoiced - totalPaid;
+  const uninvoicedAmount = totalAgencyCost - totalInvoiced;
+  
+  // Agency breakdown
+  const agencyBreakdown = agencies.map(agency => {
+    const agencyDeliverables = deliverables.filter(d => d.agencyId === agency.id);
+    const agencyInvoices = invoices.filter(i => i.agencyId === agency.id);
+    const completed = agencyDeliverables.filter(d => d.status === 'delivered');
+    const payable = completed.reduce((sum, d) => sum + (d.agencyRate || 0), 0);
+    const invoiced = agencyInvoices.filter(i => i.status !== 'draft').reduce((sum, i) => sum + i.totalAmount, 0);
+    const paid = agencyInvoices.filter(i => i.status === 'paid').reduce((sum, i) => sum + i.totalAmount, 0);
+    
+    return {
+      id: agency.id,
+      name: agency.name,
+      totalDeliverables: agencyDeliverables.length,
+      completedDeliverables: completed.length,
+      pendingDeliverables: agencyDeliverables.length - completed.length,
+      totalPayable: payable,
+      totalInvoiced: invoiced,
+      totalPaid: paid,
+      pendingPayment: invoiced - paid,
+      uninvoiced: payable - invoiced
+    };
+  }).sort((a, b) => b.totalPayable - a.totalPayable);
+  
+  // Monthly expense trend (last 6 months)
+  const monthlyExpenses = [];
+  for (let i = 5; i >= 0; i--) {
+    const date = new Date();
+    date.setMonth(date.getMonth() - i);
+    const monthStart = new Date(date.getFullYear(), date.getMonth(), 1);
+    const monthEnd = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+    
+    const monthDeliverables = deliverables.filter(d => {
+      if (d.status !== 'delivered' || !d.updatedAt) return false;
+      const updatedAt = new Date(d.updatedAt);
+      return updatedAt >= monthStart && updatedAt <= monthEnd;
+    });
+    
+    monthlyExpenses.push({
+      month: monthStart.toISOString().substring(0, 7),
+      expense: monthDeliverables.reduce((sum, d) => sum + (d.agencyRate || 0), 0),
+      count: monthDeliverables.length
+    });
+  }
+  
+  return json({
+    summary: {
+      totalAgencies,
+      totalOutsourcedDeliverables,
+      completedOutsourced,
+      totalAgencyCost,
+      totalInvoiced,
+      totalPaid,
+      pendingPayment,
+      uninvoicedAmount
+    },
+    agencyBreakdown,
+    monthlyExpenses
+  });
+}
+
 // ============ MAIN HANDLERS ============
 async function handleRequest(request, pathSegments, method) {
   const [resource, id, subResource] = pathSegments;
@@ -1396,6 +1887,7 @@ async function handleRequest(request, pathSegments, method) {
         return await handleCampaigns(request, id, method);
       case 'deliverables': return await handleDeliverables(request, id, method);
       case 'line-items': return await handleLineItems(request, id, method);
+      case 'agencies': return await handleAgencies(request, id, subResource, method);
       case 'dashboard': return await handleDashboard(request, id, method);
       case 'team': return await handleTeam(request, id, subResource, method);
       case 'activity-logs': return await handleActivityLogs(request, method);
