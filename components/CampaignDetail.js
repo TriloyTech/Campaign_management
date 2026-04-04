@@ -7,9 +7,10 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { Switch } from '@/components/ui/switch';
 import { apiFetch, formatBDT, getStatusColor, getStatusLabel } from '@/lib/api';
 import { toast } from 'sonner';
-import { ArrowLeft, Calendar, ExternalLink, CheckCircle, Clock, Play, Eye, Link2, Plus, Trash2, Pencil, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Calendar, ExternalLink, CheckCircle, Clock, Play, Eye, Link2, Plus, Trash2, Pencil, RefreshCw, Settings, Package } from 'lucide-react';
 
 const STATUS_OPTIONS = [
   { value: 'pending', label: 'Pending', icon: Clock, color: 'text-gray-400' },
@@ -22,6 +23,8 @@ export default function CampaignDetail({ campaignId, user, navigate }) {
   const [campaign, setCampaign] = useState(null);
   const [lineItems, setLineItems] = useState([]);
   const [deliverables, setDeliverables] = useState([]);
+  const [services, setServices] = useState([]);
+  const [clients, setClients] = useState([]);
   const [loading, setLoading] = useState(true);
   const [proofDialog, setProofDialog] = useState(null);
   const [proofUrl, setProofUrl] = useState('');
@@ -31,8 +34,18 @@ export default function CampaignDetail({ campaignId, user, navigate }) {
   const [renewMonth, setRenewMonth] = useState('');
   const [newDeliverable, setNewDeliverable] = useState({ serviceName: '', rate: '', month: '' });
   const [selectedMonth, setSelectedMonth] = useState('all');
+  
+  // Edit Campaign Dialog
+  const [editCampaignDialog, setEditCampaignDialog] = useState(false);
+  const [editForm, setEditForm] = useState({});
+  const [editLineItems, setEditLineItems] = useState([]);
+  const [savingCampaign, setSavingCampaign] = useState(false);
 
-  useEffect(() => { loadCampaign(); }, [campaignId]);
+  useEffect(() => { 
+    loadCampaign(); 
+    loadServices();
+    loadClients();
+  }, [campaignId]);
 
   const loadCampaign = async () => {
     try {
@@ -42,6 +55,20 @@ export default function CampaignDetail({ campaignId, user, navigate }) {
       setDeliverables(res.deliverables || []);
     } catch (err) { toast.error(err.message); }
     finally { setLoading(false); }
+  };
+
+  const loadServices = async () => {
+    try {
+      const res = await apiFetch('GET', 'services');
+      setServices(res.services || []);
+    } catch (err) { console.error(err); }
+  };
+
+  const loadClients = async () => {
+    try {
+      const res = await apiFetch('GET', 'clients');
+      setClients(res.clients || []);
+    } catch (err) { console.error(err); }
   };
 
   const updateStatus = async (deliverable, newStatus) => {
@@ -126,11 +153,106 @@ export default function CampaignDetail({ campaignId, user, navigate }) {
     } catch (err) { toast.error(err.message); }
   };
 
+  // Open Edit Campaign Dialog
+  const openEditCampaignDialog = () => {
+    setEditForm({
+      name: campaign.name,
+      type: campaign.type,
+      status: campaign.status,
+      clientId: campaign.clientId,
+      startDate: campaign.startDate || '',
+      endDate: campaign.endDate || '',
+      isRenewable: campaign.isRenewable || false
+    });
+    setEditLineItems(lineItems.map(li => ({ ...li, _action: 'existing' })));
+    setEditCampaignDialog(true);
+  };
+
+  // Add new line item to edit form
+  const addEditLineItem = () => {
+    setEditLineItems([...editLineItems, {
+      id: `new_${Date.now()}`,
+      serviceName: '',
+      quantity: 1,
+      rate: 0,
+      total: 0,
+      _action: 'new'
+    }]);
+  };
+
+  // Update line item in edit form
+  const updateEditLineItem = (index, field, value) => {
+    const updated = [...editLineItems];
+    updated[index][field] = value;
+    if (field === 'quantity' || field === 'rate') {
+      updated[index].total = Number(updated[index].quantity) * Number(updated[index].rate);
+    }
+    if (updated[index]._action === 'existing') {
+      updated[index]._action = 'modified';
+    }
+    setEditLineItems(updated);
+  };
+
+  // Remove line item from edit form
+  const removeEditLineItem = (index) => {
+    const updated = [...editLineItems];
+    if (updated[index]._action === 'new') {
+      updated.splice(index, 1);
+    } else {
+      updated[index]._action = 'deleted';
+    }
+    setEditLineItems(updated);
+  };
+
+  // Save campaign edits
+  const saveCampaignEdit = async () => {
+    setSavingCampaign(true);
+    try {
+      // Update campaign basic info
+      await apiFetch('PUT', `campaigns/${campaignId}`, editForm);
+
+      // Process line item changes
+      for (const li of editLineItems) {
+        if (li._action === 'new' && li.serviceName && li.quantity > 0 && li.rate > 0) {
+          await apiFetch('POST', 'line-items', {
+            campaignId,
+            serviceName: li.serviceName,
+            quantity: Number(li.quantity),
+            rate: Number(li.rate)
+          });
+        } else if (li._action === 'modified') {
+          await apiFetch('PUT', `line-items/${li.id}`, {
+            serviceName: li.serviceName,
+            quantity: Number(li.quantity),
+            rate: Number(li.rate)
+          });
+        } else if (li._action === 'deleted') {
+          await apiFetch('DELETE', `line-items/${li.id}`);
+        }
+      }
+
+      toast.success('Campaign updated successfully!');
+      setEditCampaignDialog(false);
+      loadCampaign();
+    } catch (err) { 
+      toast.error(err.message); 
+    } finally {
+      setSavingCampaign(false);
+    }
+  };
+
   const getStatusIcon = (status) => {
     const opt = STATUS_OPTIONS.find(s => s.value === status);
     if (!opt) return <Clock size={14} className="text-gray-400" />;
     const Icon = opt.icon;
     return <Icon size={14} className={opt.color} />;
+  };
+
+  // Calculate new projected total for preview
+  const calculateEditTotal = () => {
+    return editLineItems
+      .filter(li => li._action !== 'deleted')
+      .reduce((sum, li) => sum + (Number(li.quantity) * Number(li.rate)), 0);
   };
 
   if (loading) return <div className="space-y-4">{[1,2,3].map(i => <div key={i} className="h-24 sm:h-32 bg-muted animate-pulse rounded-lg" />)}</div>;
@@ -191,6 +313,9 @@ export default function CampaignDetail({ campaignId, user, navigate }) {
                 <SelectItem value="completed">Completed</SelectItem>
               </SelectContent>
             </Select>
+            <Button variant="outline" size="sm" onClick={openEditCampaignDialog}>
+              <Pencil size={14} className="mr-1" /> Edit Campaign
+            </Button>
             <Button variant="destructive" size="sm" onClick={deleteCampaign}>
               <Trash2 size={14} className="mr-1 sm:mr-0" />
               <span className="sm:hidden">Delete</span>
@@ -242,7 +367,16 @@ export default function CampaignDetail({ campaignId, user, navigate }) {
       {/* Scope of Work */}
       {canViewFinancials && lineItems.length > 0 && (
         <Card className="border-0 shadow-sm">
-          <CardHeader className="pb-2 sm:pb-4"><CardTitle className="text-sm sm:text-base">Scope of Work</CardTitle></CardHeader>
+          <CardHeader className="pb-2 sm:pb-4">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-sm sm:text-base">Scope of Work</CardTitle>
+              {canEditCampaign && (
+                <Button variant="ghost" size="sm" onClick={openEditCampaignDialog}>
+                  <Pencil size={12} className="mr-1" /> Edit
+                </Button>
+              )}
+            </div>
+          </CardHeader>
           <CardContent className="p-0 sm:p-6 sm:pt-0">
             <div className="overflow-x-auto">
               <table className="w-full text-xs sm:text-sm min-w-[400px]">
@@ -264,6 +398,12 @@ export default function CampaignDetail({ campaignId, user, navigate }) {
                     </tr>
                   ))}
                 </tbody>
+                <tfoot>
+                  <tr className="font-semibold">
+                    <td colSpan={3} className="py-2 px-3 text-right">Total Projected:</td>
+                    <td className="py-2 px-3 text-right">{formatBDT(campaign.totalProjected)}</td>
+                  </tr>
+                </tfoot>
               </table>
             </div>
           </CardContent>
@@ -432,6 +572,178 @@ export default function CampaignDetail({ campaignId, user, navigate }) {
               <Button onClick={updateDeliverable} className="w-full">Update Deliverable</Button>
             </div>
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Edit Campaign Dialog */}
+      <Dialog open={editCampaignDialog} onOpenChange={setEditCampaignDialog}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <Settings size={18} /> Edit Campaign
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-6 mt-4">
+            {/* Campaign Details */}
+            <div className="space-y-4">
+              <h3 className="font-medium text-sm border-b pb-2">Campaign Details</h3>
+              <div>
+                <Label>Campaign Name</Label>
+                <Input 
+                  value={editForm.name || ''} 
+                  onChange={e => setEditForm({...editForm, name: e.target.value})}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Status</Label>
+                  <Select value={editForm.status} onValueChange={v => setEditForm({...editForm, status: v})}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="active">Active</SelectItem>
+                      <SelectItem value="paused">Paused</SelectItem>
+                      <SelectItem value="completed">Completed</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <Label>Type</Label>
+                  <Select value={editForm.type} onValueChange={v => setEditForm({...editForm, type: v})}>
+                    <SelectTrigger><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="retainer">Retainer</SelectItem>
+                      <SelectItem value="one-time">One-time</SelectItem>
+                      <SelectItem value="custom">Custom</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div>
+                <Label>Client</Label>
+                <Select value={editForm.clientId} onValueChange={v => setEditForm({...editForm, clientId: v})}>
+                  <SelectTrigger><SelectValue placeholder="Select client" /></SelectTrigger>
+                  <SelectContent>
+                    {clients.map(c => (
+                      <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Start Date</Label>
+                  <Input 
+                    type="date" 
+                    value={editForm.startDate || ''} 
+                    onChange={e => setEditForm({...editForm, startDate: e.target.value})}
+                  />
+                </div>
+                <div>
+                  <Label>End Date</Label>
+                  <Input 
+                    type="date" 
+                    value={editForm.endDate || ''} 
+                    onChange={e => setEditForm({...editForm, endDate: e.target.value})}
+                  />
+                </div>
+              </div>
+              <div className="flex items-center justify-between py-2 px-3 bg-muted/50 rounded-lg">
+                <div>
+                  <Label className="text-sm font-medium">Renewable Campaign</Label>
+                  <p className="text-xs text-muted-foreground">Auto-generate deliverables monthly</p>
+                </div>
+                <Switch 
+                  checked={editForm.isRenewable} 
+                  onCheckedChange={v => setEditForm({...editForm, isRenewable: v})}
+                />
+              </div>
+            </div>
+
+            {/* Scope of Work (Line Items) */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between border-b pb-2">
+                <h3 className="font-medium text-sm flex items-center gap-2">
+                  <Package size={14} /> Scope of Work
+                </h3>
+                <Button variant="outline" size="sm" onClick={addEditLineItem}>
+                  <Plus size={12} className="mr-1" /> Add Item
+                </Button>
+              </div>
+              
+              <div className="space-y-2">
+                {editLineItems.filter(li => li._action !== 'deleted').map((li, index) => (
+                  <div key={li.id} className="flex items-center gap-2 p-3 bg-muted/30 rounded-lg">
+                    <div className="flex-1 grid grid-cols-1 sm:grid-cols-4 gap-2">
+                      <div className="sm:col-span-2">
+                        <Label className="text-xs">Service</Label>
+                        <Select 
+                          value={li.serviceName} 
+                          onValueChange={v => updateEditLineItem(index, 'serviceName', v)}
+                        >
+                          <SelectTrigger className="h-9">
+                            <SelectValue placeholder="Select service" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {services.map(s => (
+                              <SelectItem key={s.id} value={s.name}>{s.name}</SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                      <div>
+                        <Label className="text-xs">Qty</Label>
+                        <Input 
+                          type="number" 
+                          min="1"
+                          value={li.quantity} 
+                          onChange={e => updateEditLineItem(index, 'quantity', e.target.value)}
+                          className="h-9"
+                        />
+                      </div>
+                      <div>
+                        <Label className="text-xs">Rate (BDT)</Label>
+                        <Input 
+                          type="number" 
+                          min="0"
+                          value={li.rate} 
+                          onChange={e => updateEditLineItem(index, 'rate', e.target.value)}
+                          className="h-9"
+                        />
+                      </div>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs text-muted-foreground">Total</p>
+                      <p className="font-medium text-sm">{formatBDT(Number(li.quantity) * Number(li.rate))}</p>
+                    </div>
+                    <Button 
+                      variant="ghost" 
+                      size="sm" 
+                      className="text-red-500 hover:text-red-700 hover:bg-red-50 p-2"
+                      onClick={() => removeEditLineItem(index)}
+                    >
+                      <Trash2 size={14} />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+
+              {/* New Projected Total Preview */}
+              <div className="flex justify-between items-center p-3 bg-blue-50 rounded-lg border border-blue-100">
+                <span className="font-medium text-sm">New Projected Total:</span>
+                <span className="text-lg font-bold text-blue-700">{formatBDT(calculateEditTotal())}</span>
+              </div>
+            </div>
+
+            {/* Actions */}
+            <div className="flex gap-2 pt-4 border-t">
+              <Button variant="outline" onClick={() => setEditCampaignDialog(false)} className="flex-1">
+                Cancel
+              </Button>
+              <Button onClick={saveCampaignEdit} disabled={savingCampaign} className="flex-1">
+                {savingCampaign ? 'Saving...' : 'Save Changes'}
+              </Button>
+            </div>
+          </div>
         </DialogContent>
       </Dialog>
     </div>

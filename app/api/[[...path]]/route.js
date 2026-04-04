@@ -1209,6 +1209,179 @@ async function handleReports(request, type, method) {
   });
 }
 
+// ============ LINE ITEMS ============
+async function handleLineItems(request, id, method) {
+  const user = await getUserWithOrgs(request);
+  if (!user) return json({ error: 'Unauthorized' }, 401);
+  if (user.role === 'team_member') return json({ error: 'Not authorized' }, 403);
+  const db = await getDb();
+
+  // Get line items for a campaign
+  if (method === 'GET' && !id) {
+    const url = new URL(request.url);
+    const campaignId = url.searchParams.get('campaignId');
+    if (!campaignId) return json({ error: 'Campaign ID required' }, 400);
+    const lineItems = await db.collection('line_items').find({ campaignId }).toArray();
+    return json({ lineItems });
+  }
+
+  // Create new line item
+  if (method === 'POST') {
+    const data = await request.json();
+    const { campaignId, serviceName, quantity, rate } = data;
+    if (!campaignId || !serviceName || !quantity || !rate) {
+      return json({ error: 'Campaign ID, service name, quantity and rate are required' }, 400);
+    }
+    const campaign = await db.collection('campaigns').findOne({ id: campaignId });
+    if (!campaign) return json({ error: 'Campaign not found' }, 404);
+    
+    const lineItem = {
+      id: uuidv4(),
+      campaignId,
+      serviceId: data.serviceId || '',
+      serviceName,
+      quantity: Number(quantity),
+      rate: Number(rate),
+      total: Number(quantity) * Number(rate),
+      createdAt: new Date()
+    };
+    
+    await db.collection('line_items').insertOne(lineItem);
+    
+    // Create corresponding deliverables
+    const startMonth = campaign.lastRenewedMonth || campaign.startDate?.substring(0, 7) || new Date().toISOString().substring(0, 7);
+    const deliverableDocs = [];
+    for (let i = 0; i < lineItem.quantity; i++) {
+      deliverableDocs.push({
+        id: uuidv4(), campaignId, lineItemId: lineItem.id, serviceName: lineItem.serviceName, unitIndex: i + 1,
+        status: 'pending', proofUrl: '', assignedTo: campaign.assignedTo?.[0] || '', rate: lineItem.rate,
+        month: startMonth, createdAt: new Date(), updatedAt: new Date()
+      });
+    }
+    if (deliverableDocs.length) {
+      await db.collection('deliverables').insertMany(deliverableDocs);
+    }
+    
+    // Update campaign totals
+    const allLineItems = await db.collection('line_items').find({ campaignId }).toArray();
+    const totalProjected = allLineItems.reduce((sum, li) => sum + li.total, 0);
+    const allDeliverables = await db.collection('deliverables').find({ campaignId }).toArray();
+    const totalEarned = allDeliverables.filter(d => d.status === 'delivered').reduce((sum, d) => sum + d.rate, 0);
+    await db.collection('campaigns').updateOne({ id: campaignId }, { $set: { totalProjected, totalEarned, updatedAt: new Date() } });
+    
+    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: campaign.organizationId, userId: user.id, userName: user.name, action: 'created', entityType: 'line_item', entityId: lineItem.id, details: `Added "${serviceName}" (${quantity} x ${rate}) to "${campaign.name}"`, createdAt: new Date() });
+    
+    return json({ lineItem, deliverables: deliverableDocs, totalProjected, totalEarned }, 201);
+  }
+
+  // Update line item
+  if (method === 'PUT' && id) {
+    const data = await request.json();
+    const lineItem = await db.collection('line_items').findOne({ id });
+    if (!lineItem) return json({ error: 'Line item not found' }, 404);
+    
+    const updateFields = {};
+    if (data.serviceName !== undefined) updateFields.serviceName = data.serviceName;
+    if (data.quantity !== undefined) updateFields.quantity = Number(data.quantity);
+    if (data.rate !== undefined) updateFields.rate = Number(data.rate);
+    
+    // Recalculate total
+    const newQty = data.quantity !== undefined ? Number(data.quantity) : lineItem.quantity;
+    const newRate = data.rate !== undefined ? Number(data.rate) : lineItem.rate;
+    updateFields.total = newQty * newRate;
+    updateFields.updatedAt = new Date();
+    
+    await db.collection('line_items').updateOne({ id }, { $set: updateFields });
+    
+    // Update corresponding deliverables rates
+    if (data.rate !== undefined || data.serviceName !== undefined) {
+      const deliverableUpdate = {};
+      if (data.rate !== undefined) deliverableUpdate.rate = Number(data.rate);
+      if (data.serviceName !== undefined) deliverableUpdate.serviceName = data.serviceName;
+      if (Object.keys(deliverableUpdate).length > 0) {
+        deliverableUpdate.updatedAt = new Date();
+        await db.collection('deliverables').updateMany({ lineItemId: id }, { $set: deliverableUpdate });
+      }
+    }
+    
+    // Handle quantity change - add or remove deliverables
+    if (data.quantity !== undefined && Number(data.quantity) !== lineItem.quantity) {
+      const oldQty = lineItem.quantity;
+      const newQty = Number(data.quantity);
+      const campaign = await db.collection('campaigns').findOne({ id: lineItem.campaignId });
+      const startMonth = campaign?.lastRenewedMonth || campaign?.startDate?.substring(0, 7) || new Date().toISOString().substring(0, 7);
+      
+      if (newQty > oldQty) {
+        // Add more deliverables
+        const deliverableDocs = [];
+        for (let i = oldQty; i < newQty; i++) {
+          deliverableDocs.push({
+            id: uuidv4(), campaignId: lineItem.campaignId, lineItemId: id, 
+            serviceName: data.serviceName || lineItem.serviceName, unitIndex: i + 1,
+            status: 'pending', proofUrl: '', assignedTo: campaign?.assignedTo?.[0] || '', 
+            rate: data.rate !== undefined ? Number(data.rate) : lineItem.rate,
+            month: startMonth, createdAt: new Date(), updatedAt: new Date()
+          });
+        }
+        if (deliverableDocs.length) {
+          await db.collection('deliverables').insertMany(deliverableDocs);
+        }
+      } else if (newQty < oldQty) {
+        // Remove excess deliverables (only pending ones from the end)
+        const existingDeliverables = await db.collection('deliverables')
+          .find({ lineItemId: id })
+          .sort({ unitIndex: -1 })
+          .toArray();
+        const toRemove = oldQty - newQty;
+        let removed = 0;
+        for (const d of existingDeliverables) {
+          if (removed >= toRemove) break;
+          if (d.status === 'pending') {
+            await db.collection('deliverables').deleteOne({ id: d.id });
+            removed++;
+          }
+        }
+      }
+    }
+    
+    // Update campaign totals
+    const allLineItems = await db.collection('line_items').find({ campaignId: lineItem.campaignId }).toArray();
+    const totalProjected = allLineItems.reduce((sum, li) => sum + (li.id === id ? updateFields.total : li.total), 0);
+    const allDeliverables = await db.collection('deliverables').find({ campaignId: lineItem.campaignId }).toArray();
+    const totalEarned = allDeliverables.filter(d => d.status === 'delivered').reduce((sum, d) => sum + d.rate, 0);
+    await db.collection('campaigns').updateOne({ id: lineItem.campaignId }, { $set: { totalProjected, totalEarned, updatedAt: new Date() } });
+    
+    const campaign = await db.collection('campaigns').findOne({ id: lineItem.campaignId });
+    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: campaign?.organizationId, userId: user.id, userName: user.name, action: 'updated', entityType: 'line_item', entityId: id, details: `Updated line item in "${campaign?.name}" to ${newQty} x ${newRate} BDT`, createdAt: new Date() });
+    
+    return json({ success: true, totalProjected, totalEarned });
+  }
+
+  // Delete line item
+  if (method === 'DELETE' && id) {
+    const lineItem = await db.collection('line_items').findOne({ id });
+    if (!lineItem) return json({ error: 'Line item not found' }, 404);
+    
+    // Delete associated deliverables
+    await db.collection('deliverables').deleteMany({ lineItemId: id });
+    await db.collection('line_items').deleteOne({ id });
+    
+    // Update campaign totals
+    const allLineItems = await db.collection('line_items').find({ campaignId: lineItem.campaignId }).toArray();
+    const totalProjected = allLineItems.reduce((sum, li) => sum + li.total, 0);
+    const allDeliverables = await db.collection('deliverables').find({ campaignId: lineItem.campaignId }).toArray();
+    const totalEarned = allDeliverables.filter(d => d.status === 'delivered').reduce((sum, d) => sum + d.rate, 0);
+    await db.collection('campaigns').updateOne({ id: lineItem.campaignId }, { $set: { totalProjected, totalEarned, updatedAt: new Date() } });
+    
+    const campaign = await db.collection('campaigns').findOne({ id: lineItem.campaignId });
+    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: campaign?.organizationId, userId: user.id, userName: user.name, action: 'deleted', entityType: 'line_item', entityId: id, details: `Deleted "${lineItem.serviceName}" from "${campaign?.name}"`, createdAt: new Date() });
+    
+    return json({ success: true, totalProjected, totalEarned });
+  }
+
+  return json({ error: 'Not found' }, 404);
+}
+
 // ============ MAIN HANDLERS ============
 async function handleRequest(request, pathSegments, method) {
   const [resource, id, subResource] = pathSegments;
@@ -1222,6 +1395,7 @@ async function handleRequest(request, pathSegments, method) {
         if (subResource === 'renew') return await handleCampaignRenewal(request, id, method);
         return await handleCampaigns(request, id, method);
       case 'deliverables': return await handleDeliverables(request, id, method);
+      case 'line-items': return await handleLineItems(request, id, method);
       case 'dashboard': return await handleDashboard(request, id, method);
       case 'team': return await handleTeam(request, id, subResource, method);
       case 'activity-logs': return await handleActivityLogs(request, method);
