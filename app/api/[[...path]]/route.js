@@ -1736,40 +1736,50 @@ async function handleAgencyInvoices(request, agencyId, method, user, db) {
     if (!invoiceId) return json({ error: 'Invoice ID required' }, 400);
     
     const data = await request.json();
+    const invoice = await db.collection('agency_invoices').findOne({ id: invoiceId });
+    if (!invoice) return json({ error: 'Invoice not found' }, 404);
+    
     const updateFields = { updatedAt: new Date() };
     
     if (data.status !== undefined) {
       updateFields.status = data.status;
       if (data.status === 'paid') {
         updateFields.paidAt = new Date();
+      } else if (data.status === 'draft' || data.status === 'finalized') {
+        // Clear paidAt when reverting from paid
+        updateFields.paidAt = null;
       }
     }
     if (data.notes !== undefined) updateFields.notes = data.notes;
     
     await db.collection('agency_invoices').updateOne({ id: invoiceId }, { $set: updateFields });
-    const invoice = await db.collection('agency_invoices').findOne({ id: invoiceId });
+    const updatedInvoice = await db.collection('agency_invoices').findOne({ id: invoiceId });
     
-    return json({ invoice });
+    return json({ invoice: updatedInvoice });
   }
 
-  // Delete draft invoice
+  // Delete invoice (any status)
   if (method === 'DELETE') {
     const invoiceId = url.searchParams.get('invoiceId');
     if (!invoiceId) return json({ error: 'Invoice ID required' }, 400);
     
     const invoice = await db.collection('agency_invoices').findOne({ id: invoiceId });
     if (!invoice) return json({ error: 'Invoice not found' }, 404);
-    if (invoice.status !== 'draft') {
-      return json({ error: 'Only draft invoices can be deleted' }, 400);
-    }
     
-    // Unmark deliverables
+    // Unmark deliverables (release them back to uninvoiced state)
     await db.collection('deliverables').updateMany(
       { invoiceId },
       { $unset: { invoiceId: '', invoicedAt: '' } }
     );
     
     await db.collection('agency_invoices').deleteOne({ id: invoiceId });
+    
+    await db.collection('activity_logs').insertOne({
+      id: uuidv4(), organizationId: invoice.organizationId, userId: user.id, userName: user.name,
+      action: 'deleted', entityType: 'agency_invoice', entityId: invoiceId,
+      details: `Deleted invoice ${invoice.invoiceNumber} (${invoice.status})`, createdAt: new Date()
+    });
+    
     return json({ success: true });
   }
 
