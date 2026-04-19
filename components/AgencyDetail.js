@@ -421,45 +421,80 @@ export default function AgencyDetail({ agencyId, user, navigate }) {
                 </div>
               ) : (
                 <div className="space-y-3">
-                  {invoices.map(inv => (
-                    <div key={inv.id} className="p-3 sm:p-4 border rounded-lg">
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                        <div>
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <p className="font-semibold text-sm">{inv.invoiceNumber}</p>
-                            <Badge variant={inv.status === 'paid' ? 'default' : inv.status === 'finalized' ? 'secondary' : 'outline'} className="text-xs">
-                              {inv.status === 'paid' ? 'Paid' : inv.status === 'finalized' ? 'Finalized' : 'Draft'}
-                            </Badge>
-                          </div>
-                          <p className="text-xs text-muted-foreground mt-0.5">
-                            {inv.campaignName ? `Campaign: ${inv.campaignName}` : `${inv.deliverableCount} deliverables`}
-                            {' • '}{new Date(inv.createdAt).toLocaleDateString()}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <p className="font-bold text-lg">{formatBDT(inv.totalAmount)}</p>
-                          {isAdmin && inv.status === 'draft' && (
-                            <div className="flex gap-1">
-                              <Button size="sm" variant="outline" onClick={() => updateInvoiceStatus(inv.id, 'finalized')}>
-                                Finalize
-                              </Button>
-                              <button onClick={() => deleteInvoice(inv.id)} className="p-1.5 rounded hover:bg-red-50 text-red-500">
-                                <Trash2 size={14} />
-                              </button>
+                  {invoices.map(inv => {
+                    const isLocked = inv.status === 'finalized' || inv.status === 'paid';
+                    const isPaid = inv.status === 'paid';
+                    
+                    return (
+                      <div key={inv.id} className={`p-3 sm:p-4 border rounded-lg ${isPaid ? 'bg-emerald-50/50 border-emerald-200' : isLocked ? 'bg-blue-50/50 border-blue-200' : ''}`}>
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                          <div>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <p className="font-semibold text-sm">{inv.invoiceNumber}</p>
+                              <Badge 
+                                variant={isPaid ? 'default' : inv.status === 'finalized' ? 'secondary' : 'outline'} 
+                                className={`text-xs ${isPaid ? 'bg-emerald-600' : ''}`}
+                              >
+                                {isPaid ? '✓ Paid' : inv.status === 'finalized' ? '🔒 Finalized' : 'Draft'}
+                              </Badge>
                             </div>
-                          )}
-                          {isAdmin && inv.status === 'finalized' && (
-                            <Button size="sm" onClick={() => updateInvoiceStatus(inv.id, 'paid')}>
-                              Mark Paid
-                            </Button>
-                          )}
-                          {inv.status === 'paid' && (
-                            <CheckCircle size={18} className="text-emerald-500" />
-                          )}
+                            <p className="text-xs text-muted-foreground mt-0.5">
+                              {inv.campaignName ? `Campaign: ${inv.campaignName}` : `${inv.deliverableCount} deliverables`}
+                              {' • '}{new Date(inv.createdAt).toLocaleDateString()}
+                              {inv.paidAt && ` • Paid: ${new Date(inv.paidAt).toLocaleDateString()}`}
+                            </p>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <p className={`font-bold text-lg ${isPaid ? 'text-emerald-600' : ''}`}>{formatBDT(inv.totalAmount)}</p>
+                            
+                            {/* Draft: Can finalize or delete */}
+                            {isAdmin && inv.status === 'draft' && (
+                              <div className="flex gap-1">
+                                <Button size="sm" variant="outline" onClick={() => updateInvoiceStatus(inv.id, 'finalized')}>
+                                  Finalize
+                                </Button>
+                                <button onClick={() => deleteInvoice(inv.id)} className="p-1.5 rounded hover:bg-red-50 text-red-500" title="Delete draft">
+                                  <Trash2 size={14} />
+                                </button>
+                              </div>
+                            )}
+                            
+                            {/* Finalized: Can only mark as paid, cannot delete */}
+                            {isAdmin && inv.status === 'finalized' && (
+                              <div className="flex items-center gap-2">
+                                <Button size="sm" onClick={() => updateInvoiceStatus(inv.id, 'paid')}>
+                                  Mark Paid
+                                </Button>
+                                <span className="text-xs text-muted-foreground" title="Finalized invoices cannot be deleted">
+                                  🔒
+                                </span>
+                              </div>
+                            )}
+                            
+                            {/* Paid: Fully locked, show checkmark */}
+                            {inv.status === 'paid' && (
+                              <div className="flex items-center gap-2">
+                                <CheckCircle size={18} className="text-emerald-500" />
+                                <span className="text-xs text-muted-foreground" title="Paid invoices cannot be modified">
+                                  🔒
+                                </span>
+                              </div>
+                            )}
+                          </div>
                         </div>
+                        
+                        {/* Lock message for finalized/paid invoices */}
+                        {isLocked && (
+                          <p className="text-xs text-muted-foreground mt-2 pt-2 border-t">
+                            {isPaid 
+                              ? '✓ This invoice has been paid and is locked for record-keeping.'
+                              : '🔒 This invoice is finalized and cannot be deleted. Mark as paid when payment is received.'
+                            }
+                          </p>
+                        )}
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </CardContent>
