@@ -340,6 +340,18 @@ export default function CampaignDetail({ campaignId, user, navigate }) {
 
   const serviceNames = [...new Set([...lineItems.map(l => l.serviceName), ...deliverables.map(d => d.serviceName)])];
 
+  // Calculate agency costs and profitability
+  const totalAgencyCost = deliverables
+    .filter(d => d.status === 'delivered' && d.agencyId && d.agencyRate)
+    .reduce((sum, d) => sum + (d.agencyRate || 0), 0);
+  const netProfit = campaign.totalEarned - totalAgencyCost;
+  const profitMargin = campaign.totalEarned > 0 ? Math.round((netProfit / campaign.totalEarned) * 100) : 0;
+  
+  // Count outsourced vs in-house
+  const outsourcedCount = deliverables.filter(d => d.agencyId).length;
+  const inHouseCount = deliverables.filter(d => d.assignmentType === 'in_house').length;
+  const unassignedCount = deliverables.filter(d => !d.agencyId && d.assignmentType !== 'in_house').length;
+
   return (
     <div className="space-y-4 sm:space-y-6">
       {/* Header */}
@@ -390,7 +402,7 @@ export default function CampaignDetail({ campaignId, user, navigate }) {
       </div>
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 sm:gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
         {canViewFinancials && (
           <Card className="border-0 shadow-sm">
             <CardContent className="p-3 sm:pt-6">
@@ -407,7 +419,26 @@ export default function CampaignDetail({ campaignId, user, navigate }) {
             </CardContent>
           </Card>
         )}
-        <Card className="border-0 shadow-sm col-span-2 md:col-span-1">
+        {canViewFinancials && (
+          <Card className="border-0 shadow-sm">
+            <CardContent className="p-3 sm:pt-6">
+              <p className="text-xs sm:text-sm text-muted-foreground">Agency Cost</p>
+              <p className="text-lg sm:text-2xl font-bold text-amber-600 truncate">{formatBDT(totalAgencyCost)}</p>
+            </CardContent>
+          </Card>
+        )}
+        {canViewFinancials && (
+          <Card className="border-0 shadow-sm border-l-4 border-l-emerald-500">
+            <CardContent className="p-3 sm:pt-6">
+              <p className="text-xs sm:text-sm text-muted-foreground">Net Profit</p>
+              <p className={`text-lg sm:text-2xl font-bold truncate ${netProfit >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                {formatBDT(netProfit)}
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">{profitMargin}% margin</p>
+            </CardContent>
+          </Card>
+        )}
+        <Card className="border-0 shadow-sm">
           <CardContent className="p-3 sm:pt-6">
             <p className="text-xs sm:text-sm text-muted-foreground">Progress</p>
             <p className="text-lg sm:text-2xl font-bold">{pct}%</p>
@@ -417,6 +448,28 @@ export default function CampaignDetail({ campaignId, user, navigate }) {
           </CardContent>
         </Card>
       </div>
+
+      {/* Assignment Summary */}
+      {canViewFinancials && deliverables.length > 0 && (
+        <div className="flex flex-wrap items-center gap-3 text-xs">
+          <span className="text-muted-foreground">Assignment:</span>
+          {outsourcedCount > 0 && (
+            <Badge className="bg-amber-100 text-amber-800">
+              <Building2 size={10} className="mr-1" /> {outsourcedCount} Outsourced
+            </Badge>
+          )}
+          {inHouseCount > 0 && (
+            <Badge variant="outline" className="text-emerald-600 border-emerald-200">
+              <Home size={10} className="mr-1" /> {inHouseCount} In-House
+            </Badge>
+          )}
+          {unassignedCount > 0 && (
+            <Badge variant="outline" className="text-gray-500">
+              <DollarSign size={10} className="mr-1" /> {unassignedCount} Unassigned
+            </Badge>
+          )}
+        </div>
+      )}
 
       {/* Campaign Period */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between text-xs sm:text-sm text-muted-foreground gap-1">
@@ -560,6 +613,10 @@ export default function CampaignDetail({ campaignId, user, navigate }) {
                   <div className="divide-y">
                     {items.sort((a, b) => a.unitIndex - b.unitIndex).map(d => {
                       const assignedAgency = agencies.find(a => a.id === d.agencyId);
+                      const isOutsourced = d.agencyId && assignedAgency;
+                      const isInHouse = d.assignmentType === 'in_house';
+                      const isUnassigned = !isOutsourced && !isInHouse;
+                      
                       return (
                         <div key={d.id} className="px-3 sm:px-4 py-2 sm:py-3 hover:bg-muted/30">
                           <div className="flex flex-col sm:flex-row sm:items-center gap-2">
@@ -570,14 +627,18 @@ export default function CampaignDetail({ campaignId, user, navigate }) {
                               {canViewFinancials && <span className="text-xs text-muted-foreground">{formatBDT(d.rate)}</span>}
                               
                               {/* Agency Assignment Badge */}
-                              {d.agencyId && assignedAgency ? (
+                              {isOutsourced ? (
                                 <Badge className="text-xs bg-amber-100 text-amber-800 flex items-center gap-1">
                                   <Building2 size={10} /> {assignedAgency.name}
-                                  {d.agencyRate && <span className="ml-1">({formatBDT(d.agencyRate)})</span>}
+                                  {d.agencyRate && <span className="ml-1">@ {formatBDT(d.agencyRate)}</span>}
                                 </Badge>
-                              ) : (
+                              ) : isInHouse ? (
                                 <Badge variant="outline" className="text-xs text-emerald-600 border-emerald-200 flex items-center gap-1">
                                   <Home size={10} /> In-House
+                                </Badge>
+                              ) : (
+                                <Badge variant="outline" className="text-xs text-gray-400 border-gray-200 flex items-center gap-1">
+                                  <DollarSign size={10} /> Unassigned
                                 </Badge>
                               )}
                               
@@ -594,14 +655,16 @@ export default function CampaignDetail({ campaignId, user, navigate }) {
                                   {STATUS_OPTIONS.map(opt => <SelectItem key={opt.value} value={opt.value}>{opt.label}</SelectItem>)}
                                 </SelectContent>
                               </Select>
+                              {canEditCampaign && (
+                                <button onClick={() => openAssignAgency(d)} className={`p-1 sm:p-1.5 rounded ${isUnassigned ? 'bg-amber-100 text-amber-600' : 'hover:bg-amber-50 text-amber-600'}`} title="Assign Agency/In-House">
+                                  <Building2 size={12} />
+                                </button>
+                              )}
                               <button onClick={() => { setProofDialog(d); setProofUrl(d.proofUrl || ''); }} className="p-1 sm:p-1.5 hover:bg-muted rounded" title="Add proof link">
                                 <Link2 size={12} />
                               </button>
                               {canEditCampaign && (
                                 <>
-                                  <button onClick={() => openAssignAgency(d)} className="p-1 sm:p-1.5 hover:bg-amber-50 text-amber-600 rounded" title="Assign Agency">
-                                    <Building2 size={12} />
-                                  </button>
                                   <button onClick={() => setEditDeliverableDialog({ ...d })} className="p-1 sm:p-1.5 hover:bg-muted rounded" title="Edit">
                                     <Pencil size={12} />
                                   </button>
