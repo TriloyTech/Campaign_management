@@ -13,6 +13,7 @@ export default function DateFilter({ value, onChange }) {
         <SelectItem value="all">All Time</SelectItem>
         <SelectItem value="today">Today</SelectItem>
         <SelectItem value="week">This Week</SelectItem>
+        <SelectItem value="lastmonth">Last Month</SelectItem>
         <SelectItem value="month">This Month</SelectItem>
         <SelectItem value="quarter">This Quarter</SelectItem>
         <SelectItem value="year">This Year</SelectItem>

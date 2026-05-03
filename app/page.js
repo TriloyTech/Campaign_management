@@ -76,7 +76,9 @@ export default function App() {
       const orgs = data.organizations || [];
       setOrganizations(orgs);
       if (orgs.length > 0 && !selectedOrgId) {
-        const defaultOrg = orgs[0].id;
+        // Prioritize "Triloy Tech" or "TriloyTech" as default, otherwise use first org
+        const triloyTech = orgs.find(o => o.name?.toLowerCase().includes('triloy'));
+        const defaultOrg = triloyTech ? triloyTech.id : orgs[0].id;
         setSelectedOrgId(defaultOrg);
         setApiContext(defaultOrg, 'super_admin', true);
       }

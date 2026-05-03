@@ -128,7 +128,7 @@ function getDateFilter(request, field = 'createdAt') {
   const dateRange = url.searchParams.get('dateRange');
   if (!dateRange || dateRange === 'all') return {};
   const now = new Date();
-  let start;
+  let start, end;
   switch (dateRange) {
     case 'today':
       start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -138,8 +138,20 @@ function getDateFilter(request, field = 'createdAt') {
       start.setDate(now.getDate() - now.getDay());
       start.setHours(0, 0, 0, 0);
       break;
+    case 'lastmonth':
+      // First day of last month to last day of last month
+      start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      end = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+      return { [field]: { $gte: start, $lte: end } };
     case 'month':
       start = new Date(now.getFullYear(), now.getMonth(), 1);
+      break;
+    case 'quarter':
+      const quarterMonth = Math.floor(now.getMonth() / 3) * 3;
+      start = new Date(now.getFullYear(), quarterMonth, 1);
+      break;
+    case 'year':
+      start = new Date(now.getFullYear(), 0, 1);
       break;
     default:
       return {};
