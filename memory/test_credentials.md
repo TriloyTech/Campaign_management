@@ -1,5 +1,7 @@
 # Test Credentials
 
+**All accounts use password: `admin123`**
+
 ## Super Admin
 - **Email:** super@agency.com
 - **Password:** admin123
@@ -22,3 +24,6 @@
 - **Email:** member2@agency.com
 - **Password:** admin123
 - **Role:** Team Member (Tanvir Hasan)
+
+---
+Last updated: $(date)
