@@ -8,7 +8,7 @@ import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { apiFetch } from '@/lib/api';
 import { toast } from 'sonner';
-import { Plus, Search, Pencil, Trash2, Building2, Mail, Phone, User } from 'lucide-react';
+import { Plus, Search, Pencil, Trash2, Building2, Mail, Phone, User, Hash } from 'lucide-react';
 
 export default function ClientsView({ user }) {
   const [clients, setClients] = useState([]);
@@ -16,7 +16,7 @@ export default function ClientsView({ user }) {
   const [loading, setLoading] = useState(true);
   const [showDialog, setShowDialog] = useState(false);
   const [editingClient, setEditingClient] = useState(null);
-  const [form, setForm] = useState({ name: '', contactPerson: '', email: '', phone: '', industry: '' });
+  const [form, setForm] = useState({ name: '', clientCode: '', contactPerson: '', email: '', phone: '', industry: '' });
 
   useEffect(() => { loadClients(); }, []);
 
@@ -39,14 +39,21 @@ export default function ClientsView({ user }) {
       }
       setShowDialog(false);
       setEditingClient(null);
-      setForm({ name: '', contactPerson: '', email: '', phone: '', industry: '' });
+      setForm({ name: '', clientCode: '', contactPerson: '', email: '', phone: '', industry: '' });
       loadClients();
     } catch (err) { toast.error(err.message); }
   };
 
   const handleEdit = (client) => {
     setEditingClient(client);
-    setForm({ name: client.name, contactPerson: client.contactPerson, email: client.email, phone: client.phone, industry: client.industry });
+    setForm({ 
+      name: client.name, 
+      clientCode: client.clientCode || '',
+      contactPerson: client.contactPerson, 
+      email: client.email, 
+      phone: client.phone, 
+      industry: client.industry 
+    });
     setShowDialog(true);
   };
 
@@ -61,10 +68,16 @@ export default function ClientsView({ user }) {
 
   const filtered = clients.filter(c =>
     c.name?.toLowerCase().includes(search.toLowerCase()) ||
-    c.industry?.toLowerCase().includes(search.toLowerCase())
+    c.industry?.toLowerCase().includes(search.toLowerCase()) ||
+    c.clientCode?.toLowerCase().includes(search.toLowerCase())
   );
 
   const canManageClients = user.role === 'admin' || user.role === 'super_admin';
+
+  // Format client display name
+  const getDisplayName = (client) => {
+    return client.clientCode ? `${client.name} (${client.clientCode})` : client.name;
+  };
 
   return (
     <div className="space-y-4 sm:space-y-6">
@@ -75,7 +88,7 @@ export default function ClientsView({ user }) {
           <p className="text-sm text-muted-foreground">Manage your client companies</p>
         </div>
         {canManageClients && (
-          <Dialog open={showDialog} onOpenChange={(open) => { setShowDialog(open); if (!open) { setEditingClient(null); setForm({ name: '', contactPerson: '', email: '', phone: '', industry: '' }); } }}>
+          <Dialog open={showDialog} onOpenChange={(open) => { setShowDialog(open); if (!open) { setEditingClient(null); setForm({ name: '', clientCode: '', contactPerson: '', email: '', phone: '', industry: '' }); } }}>
             <DialogTrigger asChild>
               <Button size="sm" className="w-full sm:w-auto"><Plus size={16} className="mr-2" /> Add Client</Button>
             </DialogTrigger>
@@ -85,6 +98,13 @@ export default function ClientsView({ user }) {
               </DialogHeader>
               <div className="space-y-4 mt-4">
                 <div><Label>Company Name *</Label><Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Company name" /></div>
+                {editingClient && (
+                  <div>
+                    <Label>Client ID (Lead ID)</Label>
+                    <Input value={form.clientCode} onChange={e => setForm({ ...form, clientCode: e.target.value })} placeholder="e.g., LD-001" />
+                    <p className="text-xs text-muted-foreground mt-1">Auto-generated on creation. Edit to customize.</p>
+                  </div>
+                )}
                 <div><Label>Contact Person</Label><Input value={form.contactPerson} onChange={e => setForm({ ...form, contactPerson: e.target.value })} placeholder="Primary contact" /></div>
                 <div><Label>Email</Label><Input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="email@company.com" /></div>
                 <div><Label>Phone</Label><Input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="+880 ..." /></div>
@@ -99,7 +119,7 @@ export default function ClientsView({ user }) {
       {/* Search */}
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} />
-        <Input className="pl-9" placeholder="Search clients..." value={search} onChange={e => setSearch(e.target.value)} />
+        <Input className="pl-9" placeholder="Search by name, ID, or industry..." value={search} onChange={e => setSearch(e.target.value)} />
       </div>
 
       {/* Client Grid */}
@@ -129,7 +149,12 @@ export default function ClientsView({ user }) {
                   )}
                 </div>
                 <h3 className="font-semibold text-sm mb-1 truncate">{client.name}</h3>
-                {client.industry && <Badge variant="secondary" className="mb-3 text-xs">{client.industry}</Badge>}
+                {client.clientCode && (
+                  <Badge variant="outline" className="mb-2 text-xs font-mono">
+                    <Hash size={10} className="mr-1" />{client.clientCode}
+                  </Badge>
+                )}
+                {client.industry && <Badge variant="secondary" className="mb-3 text-xs ml-1">{client.industry}</Badge>}
                 <div className="space-y-1.5 text-xs text-muted-foreground">
                   {client.contactPerson && <div className="flex items-center gap-2 truncate"><User size={11} /> {client.contactPerson}</div>}
                   {client.email && <div className="flex items-center gap-2 truncate"><Mail size={11} /> {client.email}</div>}

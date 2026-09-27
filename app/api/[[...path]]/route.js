@@ -345,19 +345,30 @@ async function handleClients(request, id, method) {
     if (user.role === 'team_member') return json({ error: 'Not authorized' }, 403);
     const data = await request.json();
     const targetOrg = orgId || user.organizationId;
+    
+    // Auto-generate clientCode (LD-XXX format)
+    const lastClient = await db.collection('clients').find({ organizationId: targetOrg }).sort({ clientCode: -1 }).limit(1).toArray();
+    let nextNumber = 1;
+    if (lastClient.length > 0 && lastClient[0].clientCode) {
+      const match = lastClient[0].clientCode.match(/LD-(\d+)/);
+      if (match) nextNumber = parseInt(match[1], 10) + 1;
+    }
+    const clientCode = `LD-${String(nextNumber).padStart(3, '0')}`;
+    
     const client = {
-      id: uuidv4(), organizationId: targetOrg, name: data.name,
+      id: uuidv4(), organizationId: targetOrg, name: data.name, clientCode,
       contactPerson: data.contactPerson || '', email: data.email || '', phone: data.phone || '',
       industry: data.industry || '', status: 'active', createdAt: new Date()
     };
     await db.collection('clients').insertOne(client);
-    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: targetOrg, userId: user.id, userName: user.name, action: 'created', entityType: 'client', entityId: client.id, details: `Created client "${client.name}"`, createdAt: new Date() });
+    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: targetOrg, userId: user.id, userName: user.name, action: 'created', entityType: 'client', entityId: client.id, details: `Created client "${client.name}" (${clientCode})`, createdAt: new Date() });
     return json({ client }, 201);
   }
   if (method === 'PUT' && id) {
     const data = await request.json();
     const updateFields = {};
     if (data.name !== undefined) updateFields.name = data.name;
+    if (data.clientCode !== undefined) updateFields.clientCode = data.clientCode;
     if (data.contactPerson !== undefined) updateFields.contactPerson = data.contactPerson;
     if (data.email !== undefined) updateFields.email = data.email;
     if (data.phone !== undefined) updateFields.phone = data.phone;
@@ -368,14 +379,14 @@ async function handleClients(request, id, method) {
     if (orgId) filter.organizationId = orgId;
     await db.collection('clients').updateOne(filter, { $set: updateFields });
     const client = await db.collection('clients').findOne({ id });
-    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: client?.organizationId || orgId, userId: user.id, userName: user.name, action: 'modified', entityType: 'client', entityId: id, details: `Modified client "${client?.name}"`, createdAt: new Date() });
+    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: client?.organizationId || orgId, userId: user.id, userName: user.name, action: 'modified', entityType: 'client', entityId: id, details: `Modified client "${client?.name}" (${client?.clientCode})`, createdAt: new Date() });
     return json({ client });
   }
   if (method === 'DELETE' && id) {
     if (user.role === 'team_member') return json({ error: 'Not authorized' }, 403);
     const delClient = await db.collection('clients').findOne({ id });
     await db.collection('clients').deleteOne({ id });
-    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: delClient?.organizationId || orgId, userId: user.id, userName: user.name, action: 'deleted', entityType: 'client', entityId: id, details: `Deleted client "${delClient?.name || id}"`, createdAt: new Date() });
+    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: delClient?.organizationId || orgId, userId: user.id, userName: user.name, action: 'deleted', entityType: 'client', entityId: id, details: `Deleted client "${delClient?.name || id}" (${delClient?.clientCode})`, createdAt: new Date() });
     return json({ success: true });
   }
   return json({ error: 'Not found' }, 404);
@@ -399,8 +410,12 @@ async function handleServices(request, id, method) {
         filter.organizationId = { $in: userOrgIds };
       }
     }
-    const services = await db.collection('service_catalog').find(filter).sort({ createdAt: -1 }).limit(200).toArray();
-    return json({ services });
+    const services = await db.collection('service_catalog').find(filter).sort({ serviceType: 1, createdAt: -1 }).limit(200).toArray();
+    
+    // Get unique service types for dropdown
+    const serviceTypes = [...new Set(services.map(s => s.serviceType).filter(Boolean))];
+    
+    return json({ services, serviceTypes });
   }
   if (method === 'POST') {
     if (user.role === 'team_member') return json({ error: 'Not authorized' }, 403);
@@ -408,10 +423,11 @@ async function handleServices(request, id, method) {
     const targetOrg = orgId || user.organizationId;
     const service = {
       id: uuidv4(), organizationId: targetOrg, name: data.name,
-      defaultRate: Number(data.defaultRate) || 0, description: data.description || '', createdAt: new Date()
+      defaultRate: Number(data.defaultRate) || 0, description: data.description || '',
+      serviceType: data.serviceType || 'General', createdAt: new Date()
     };
     await db.collection('service_catalog').insertOne(service);
-    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: targetOrg, userId: user.id, userName: user.name, action: 'created', entityType: 'service', entityId: service.id, details: `Created service "${service.name}" at ${service.defaultRate} BDT`, createdAt: new Date() });
+    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: targetOrg, userId: user.id, userName: user.name, action: 'created', entityType: 'service', entityId: service.id, details: `Created service "${service.name}" (${service.serviceType}) at ${service.defaultRate} BDT`, createdAt: new Date() });
     return json({ service }, 201);
   }
   if (method === 'PUT' && id) {
@@ -420,17 +436,18 @@ async function handleServices(request, id, method) {
     if (data.name !== undefined) updateFields.name = data.name;
     if (data.defaultRate !== undefined) updateFields.defaultRate = Number(data.defaultRate);
     if (data.description !== undefined) updateFields.description = data.description;
+    if (data.serviceType !== undefined) updateFields.serviceType = data.serviceType;
     updateFields.updatedAt = new Date();
     await db.collection('service_catalog').updateOne({ id }, { $set: updateFields });
     const service = await db.collection('service_catalog').findOne({ id });
-    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: service?.organizationId || orgId, userId: user.id, userName: user.name, action: 'modified', entityType: 'service', entityId: id, details: `Modified service "${service?.name}"`, createdAt: new Date() });
+    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: service?.organizationId || orgId, userId: user.id, userName: user.name, action: 'modified', entityType: 'service', entityId: id, details: `Modified service "${service?.name}" (${service?.serviceType})`, createdAt: new Date() });
     return json({ service });
   }
   if (method === 'DELETE' && id) {
     if (user.role === 'team_member') return json({ error: 'Not authorized' }, 403);
     const delSvc = await db.collection('service_catalog').findOne({ id });
     await db.collection('service_catalog').deleteOne({ id });
-    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: delSvc?.organizationId || orgId, userId: user.id, userName: user.name, action: 'deleted', entityType: 'service', entityId: id, details: `Deleted service "${delSvc?.name || id}"`, createdAt: new Date() });
+    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: delSvc?.organizationId || orgId, userId: user.id, userName: user.name, action: 'deleted', entityType: 'service', entityId: id, details: `Deleted service "${delSvc?.name || id}" (${delSvc?.serviceType})`, createdAt: new Date() });
     return json({ success: true });
   }
   return json({ error: 'Not found' }, 404);
@@ -674,6 +691,11 @@ async function handleDeliverables(request, id, method) {
     const deliverable = await db.collection('deliverables').findOne({ id });
     if (!deliverable) return json({ error: 'Deliverable not found' }, 404);
     
+    // Track status changes for audit
+    const oldStatus = deliverable.status;
+    const newStatus = data.status;
+    const statusChanged = newStatus !== undefined && newStatus !== oldStatus;
+    
     // Team members can only update status and proofUrl
     const updateData = { updatedAt: new Date() };
     if (data.status !== undefined) updateData.status = data.status;
@@ -733,7 +755,29 @@ async function handleDeliverables(request, id, method) {
     await db.collection('campaigns').updateOne({ id: deliverable.campaignId }, { $set: { totalProjected, totalEarned, totalAgencyCost, updatedAt: new Date() } });
     
     const campaign = await db.collection('campaigns').findOne({ id: deliverable.campaignId });
-    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: campaign?.organizationId || user.organizationId, userId: user.id, userName: user.name, action: 'updated', entityType: 'deliverable', entityId: id, details: `Updated "${deliverable.serviceName} #${deliverable.unitIndex}" to ${data.status || 'updated'}`, createdAt: new Date() });
+    
+    // Enhanced audit log for status changes
+    if (statusChanged) {
+      await db.collection('activity_logs').insertOne({ 
+        id: uuidv4(), 
+        organizationId: campaign?.organizationId || user.organizationId, 
+        userId: user.id, 
+        userName: user.name, 
+        action: 'status_change', 
+        entityType: 'deliverable', 
+        entityId: id, 
+        details: `Changed "${deliverable.serviceName} #${deliverable.unitIndex}" status from ${oldStatus} to ${newStatus}`,
+        oldStatus,
+        newStatus,
+        campaignId: deliverable.campaignId,
+        campaignName: campaign?.name,
+        clientName: campaign?.clientName,
+        serviceName: deliverable.serviceName,
+        createdAt: new Date() 
+      });
+    } else {
+      await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: campaign?.organizationId || user.organizationId, userId: user.id, userName: user.name, action: 'updated', entityType: 'deliverable', entityId: id, details: `Updated "${deliverable.serviceName} #${deliverable.unitIndex}"`, createdAt: new Date() });
+    }
     return json({ success: true, totalProjected, totalEarned, totalAgencyCost });
   }
 
@@ -1148,6 +1192,7 @@ async function handleReports(request, type, method) {
   // Get period from query params (month: YYYY-MM, week: YYYY-WW, day: YYYY-MM-DD)
   const period = url.searchParams.get('period') || 'month';
   const date = url.searchParams.get('date') || new Date().toISOString().substring(0, 10);
+  const reportType = url.searchParams.get('type') || 'summary'; // summary, pnl, service-breakdown, delivery-tracking
   
   let filter = {};
   if (orgId) {
@@ -1187,9 +1232,16 @@ async function handleReports(request, type, method) {
     return start <= periodEnd && end >= periodStart;
   });
   
+  // Get all clients for name lookup
+  const clients = await db.collection('clients').find(filter).toArray();
+  const clientMap = {};
+  clients.forEach(c => { clientMap[c.id] = c; });
+  
   // Calculate totals (include ALL statuses)
   const totalProjected = periodCampaigns.reduce((sum, c) => sum + (c.totalProjected || 0), 0);
   const totalEarned = periodCampaigns.reduce((sum, c) => sum + (c.totalEarned || 0), 0);
+  const totalAgencyCost = periodCampaigns.reduce((sum, c) => sum + (c.totalAgencyCost || 0), 0);
+  const totalNetProfit = totalEarned - totalAgencyCost;
   
   // Status breakdown
   const statusBreakdown = {
@@ -1211,15 +1263,35 @@ async function handleReports(request, type, method) {
     }
   });
   
-  // Client breakdown (all statuses)
-  const clientMap = {};
+  // Client breakdown with PnL (all statuses)
+  const clientPnLMap = {};
   for (const c of periodCampaigns) {
-    if (!clientMap[c.clientId]) clientMap[c.clientId] = { clientName: c.clientName, clientId: c.clientId, projected: 0, earned: 0, campaigns: 0 };
-    clientMap[c.clientId].projected += c.totalProjected || 0;
-    clientMap[c.clientId].earned += c.totalEarned || 0;
-    clientMap[c.clientId].campaigns += 1;
+    const client = clientMap[c.clientId] || {};
+    const displayName = client.clientCode ? `${c.clientName} (${client.clientCode})` : c.clientName;
+    if (!clientPnLMap[c.clientId]) {
+      clientPnLMap[c.clientId] = { 
+        clientName: c.clientName, 
+        clientCode: client.clientCode || '',
+        displayName,
+        clientId: c.clientId, 
+        projected: 0, 
+        earned: 0, 
+        agencyCost: 0,
+        netProfit: 0,
+        margin: 0,
+        campaigns: 0 
+      };
+    }
+    clientPnLMap[c.clientId].projected += c.totalProjected || 0;
+    clientPnLMap[c.clientId].earned += c.totalEarned || 0;
+    clientPnLMap[c.clientId].agencyCost += c.totalAgencyCost || 0;
+    clientPnLMap[c.clientId].netProfit = clientPnLMap[c.clientId].earned - clientPnLMap[c.clientId].agencyCost;
+    clientPnLMap[c.clientId].margin = clientPnLMap[c.clientId].earned > 0 
+      ? Math.round((clientPnLMap[c.clientId].netProfit / clientPnLMap[c.clientId].earned) * 100) 
+      : 0;
+    clientPnLMap[c.clientId].campaigns += 1;
   }
-  const clientBreakdown = Object.values(clientMap).sort((a, b) => b.projected - a.projected);
+  const clientBreakdown = Object.values(clientPnLMap).sort((a, b) => b.projected - a.projected);
   
   // Get deliverables for the period
   const campaignIds = periodCampaigns.map(c => c.id);
@@ -1232,6 +1304,66 @@ async function handleReports(request, type, method) {
     delivered: deliverables.filter(d => d.status === 'delivered').length
   };
   
+  // Service breakdown report - aggregate by client, service type, and service name
+  const serviceBreakdownMap = {};
+  const services = await db.collection('service_catalog').find(filter).toArray();
+  const serviceTypeMap = {};
+  services.forEach(s => { serviceTypeMap[s.name] = s.serviceType || 'General'; });
+  
+  for (const d of deliverables) {
+    const campaign = periodCampaigns.find(c => c.id === d.campaignId);
+    if (!campaign) continue;
+    
+    const client = clientMap[campaign.clientId] || {};
+    const clientDisplayName = client.clientCode ? `${campaign.clientName} (${client.clientCode})` : campaign.clientName;
+    const serviceType = serviceTypeMap[d.serviceName] || 'General';
+    const key = `${campaign.clientId}-${d.serviceName}`;
+    
+    if (!serviceBreakdownMap[key]) {
+      serviceBreakdownMap[key] = {
+        clientId: campaign.clientId,
+        clientName: campaign.clientName,
+        clientCode: client.clientCode || '',
+        clientDisplayName,
+        campaignId: campaign.id,
+        campaignName: campaign.name,
+        serviceName: d.serviceName,
+        serviceType,
+        targetCount: 0,
+        deliveredCount: 0,
+        ratePerService: d.rate,
+        totalBill: 0
+      };
+    }
+    serviceBreakdownMap[key].targetCount += 1;
+    if (d.status === 'delivered') {
+      serviceBreakdownMap[key].deliveredCount += 1;
+      serviceBreakdownMap[key].totalBill += d.rate;
+    }
+  }
+  const serviceBreakdown = Object.values(serviceBreakdownMap).sort((a, b) => a.clientName.localeCompare(b.clientName));
+  
+  // Delivery tracking - get recent status changes with user info
+  let deliveryFilter = {};
+  if (orgId) deliveryFilter.organizationId = orgId;
+  deliveryFilter.action = 'status_change';
+  deliveryFilter.entityType = 'deliverable';
+  
+  const deliveryLogs = await db.collection('activity_logs').find(deliveryFilter).sort({ createdAt: -1 }).limit(100).toArray();
+  
+  // Count deliveries by user
+  const deliveryByUserMap = {};
+  for (const log of deliveryLogs) {
+    if (!deliveryByUserMap[log.userId]) {
+      deliveryByUserMap[log.userId] = { userId: log.userId, userName: log.userName, statusChanges: 0, toDelivered: 0 };
+    }
+    deliveryByUserMap[log.userId].statusChanges += 1;
+    if (log.newStatus === 'delivered') {
+      deliveryByUserMap[log.userId].toDelivered += 1;
+    }
+  }
+  const deliveryByUser = Object.values(deliveryByUserMap).sort((a, b) => b.statusChanges - a.statusChanges);
+  
   return json({
     period,
     date,
@@ -1241,6 +1373,9 @@ async function handleReports(request, type, method) {
       totalCampaigns: periodCampaigns.length,
       totalProjected,
       totalEarned,
+      totalAgencyCost,
+      totalNetProfit,
+      profitMargin: totalEarned > 0 ? Math.round((totalNetProfit / totalEarned) * 100) : 0,
       totalPending: totalProjected - totalEarned,
       completionRate: totalProjected > 0 ? Math.round((totalEarned / totalProjected) * 100) : 0
     },
@@ -1248,9 +1383,15 @@ async function handleReports(request, type, method) {
     revenueByStatus,
     clientBreakdown,
     deliverableStats,
+    serviceBreakdown,
+    deliveryByUser,
+    deliveryLogs: deliveryLogs.slice(0, 20),
     campaigns: periodCampaigns.map(c => ({
-      id: c.id, name: c.name, clientName: c.clientName, status: c.status,
-      totalProjected: c.totalProjected, totalEarned: c.totalEarned,
+      id: c.id, name: c.name, clientName: c.clientName, 
+      clientCode: clientMap[c.clientId]?.clientCode || '',
+      status: c.status,
+      totalProjected: c.totalProjected, totalEarned: c.totalEarned, totalAgencyCost: c.totalAgencyCost || 0,
+      netProfit: (c.totalEarned || 0) - (c.totalAgencyCost || 0),
       startDate: c.startDate, endDate: c.endDate, isRenewable: c.isRenewable
     }))
   });
