@@ -346,14 +346,8 @@ async function handleClients(request, id, method) {
     const data = await request.json();
     const targetOrg = orgId || user.organizationId;
     
-    // Auto-generate clientCode (LD-XXX format)
-    const lastClient = await db.collection('clients').find({ organizationId: targetOrg }).sort({ clientCode: -1 }).limit(1).toArray();
-    let nextNumber = 1;
-    if (lastClient.length > 0 && lastClient[0].clientCode) {
-      const match = lastClient[0].clientCode.match(/LD-(\d+)/);
-      if (match) nextNumber = parseInt(match[1], 10) + 1;
-    }
-    const clientCode = `LD-${String(nextNumber).padStart(3, '0')}`;
+    // Client ID (Lead ID) is manually input by user
+    const clientCode = data.clientCode || '';
     
     const client = {
       id: uuidv4(), organizationId: targetOrg, name: data.name, clientCode,
@@ -361,7 +355,7 @@ async function handleClients(request, id, method) {
       industry: data.industry || '', status: 'active', createdAt: new Date()
     };
     await db.collection('clients').insertOne(client);
-    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: targetOrg, userId: user.id, userName: user.name, action: 'created', entityType: 'client', entityId: client.id, details: `Created client "${client.name}" (${clientCode})`, createdAt: new Date() });
+    await db.collection('activity_logs').insertOne({ id: uuidv4(), organizationId: targetOrg, userId: user.id, userName: user.name, action: 'created', entityType: 'client', entityId: client.id, details: `Created client "${client.name}"${clientCode ? ` (${clientCode})` : ''}`, createdAt: new Date() });
     return json({ client }, 201);
   }
   if (method === 'PUT' && id) {

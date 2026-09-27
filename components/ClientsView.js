@@ -29,6 +29,10 @@ export default function ClientsView({ user }) {
   };
 
   const handleSave = async () => {
+    if (!form.name) {
+      toast.error('Company name is required');
+      return;
+    }
     try {
       if (editingClient) {
         await apiFetch('PUT', `clients/${editingClient.id}`, form);
@@ -49,21 +53,27 @@ export default function ClientsView({ user }) {
     setForm({ 
       name: client.name, 
       clientCode: client.clientCode || '',
-      contactPerson: client.contactPerson, 
-      email: client.email, 
-      phone: client.phone, 
-      industry: client.industry 
+      contactPerson: client.contactPerson || '', 
+      email: client.email || '', 
+      phone: client.phone || '', 
+      industry: client.industry || ''
     });
     setShowDialog(true);
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Delete this client?')) return;
+    if (!confirm('Delete this client? This action cannot be undone.')) return;
     try {
       await apiFetch('DELETE', `clients/${id}`);
       toast.success('Client deleted');
       loadClients();
     } catch (err) { toast.error(err.message); }
+  };
+
+  const handleNewClient = () => {
+    setEditingClient(null);
+    setForm({ name: '', clientCode: '', contactPerson: '', email: '', phone: '', industry: '' });
+    setShowDialog(true);
   };
 
   const filtered = clients.filter(c =>
@@ -88,33 +98,83 @@ export default function ClientsView({ user }) {
           <p className="text-sm text-muted-foreground">Manage your client companies</p>
         </div>
         {canManageClients && (
-          <Dialog open={showDialog} onOpenChange={(open) => { setShowDialog(open); if (!open) { setEditingClient(null); setForm({ name: '', clientCode: '', contactPerson: '', email: '', phone: '', industry: '' }); } }}>
-            <DialogTrigger asChild>
-              <Button size="sm" className="w-full sm:w-auto"><Plus size={16} className="mr-2" /> Add Client</Button>
-            </DialogTrigger>
-            <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>{editingClient ? 'Edit Client' : 'New Client'}</DialogTitle>
-              </DialogHeader>
-              <div className="space-y-4 mt-4">
-                <div><Label>Company Name *</Label><Input value={form.name} onChange={e => setForm({ ...form, name: e.target.value })} placeholder="Company name" /></div>
-                {editingClient && (
-                  <div>
-                    <Label>Client ID (Lead ID)</Label>
-                    <Input value={form.clientCode} onChange={e => setForm({ ...form, clientCode: e.target.value })} placeholder="e.g., LD-001" />
-                    <p className="text-xs text-muted-foreground mt-1">Auto-generated on creation. Edit to customize.</p>
-                  </div>
-                )}
-                <div><Label>Contact Person</Label><Input value={form.contactPerson} onChange={e => setForm({ ...form, contactPerson: e.target.value })} placeholder="Primary contact" /></div>
-                <div><Label>Email</Label><Input type="email" value={form.email} onChange={e => setForm({ ...form, email: e.target.value })} placeholder="email@company.com" /></div>
-                <div><Label>Phone</Label><Input value={form.phone} onChange={e => setForm({ ...form, phone: e.target.value })} placeholder="+880 ..." /></div>
-                <div><Label>Industry</Label><Input value={form.industry} onChange={e => setForm({ ...form, industry: e.target.value })} placeholder="e.g., Technology, Fashion" /></div>
-                <Button onClick={handleSave} className="w-full">{editingClient ? 'Update' : 'Create'} Client</Button>
-              </div>
-            </DialogContent>
-          </Dialog>
+          <Button size="sm" className="w-full sm:w-auto" onClick={handleNewClient}>
+            <Plus size={16} className="mr-2" /> Add Client
+          </Button>
         )}
       </div>
+
+      {/* Add/Edit Dialog */}
+      <Dialog open={showDialog} onOpenChange={(open) => { 
+        setShowDialog(open); 
+        if (!open) { 
+          setEditingClient(null); 
+          setForm({ name: '', clientCode: '', contactPerson: '', email: '', phone: '', industry: '' }); 
+        } 
+      }}>
+        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{editingClient ? 'Edit Client' : 'New Client'}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-4">
+            <div>
+              <Label>Company Name *</Label>
+              <Input 
+                value={form.name} 
+                onChange={e => setForm({ ...form, name: e.target.value })} 
+                placeholder="Company name" 
+              />
+            </div>
+            <div>
+              <Label>Client ID (Lead ID)</Label>
+              <Input 
+                value={form.clientCode} 
+                onChange={e => setForm({ ...form, clientCode: e.target.value })} 
+                placeholder="e.g., LD-001, CL-ABC, etc." 
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Enter a unique identifier for this client. Will display as: {form.name || 'Company'} ({form.clientCode || 'ID'})
+              </p>
+            </div>
+            <div>
+              <Label>Contact Person</Label>
+              <Input 
+                value={form.contactPerson} 
+                onChange={e => setForm({ ...form, contactPerson: e.target.value })} 
+                placeholder="Primary contact" 
+              />
+            </div>
+            <div>
+              <Label>Email</Label>
+              <Input 
+                type="email" 
+                value={form.email} 
+                onChange={e => setForm({ ...form, email: e.target.value })} 
+                placeholder="email@company.com" 
+              />
+            </div>
+            <div>
+              <Label>Phone</Label>
+              <Input 
+                value={form.phone} 
+                onChange={e => setForm({ ...form, phone: e.target.value })} 
+                placeholder="+880 ..." 
+              />
+            </div>
+            <div>
+              <Label>Industry</Label>
+              <Input 
+                value={form.industry} 
+                onChange={e => setForm({ ...form, industry: e.target.value })} 
+                placeholder="e.g., Technology, Fashion" 
+              />
+            </div>
+            <Button onClick={handleSave} className="w-full">
+              {editingClient ? 'Update' : 'Create'} Client
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* Search */}
       <div className="relative">
@@ -150,7 +210,7 @@ export default function ClientsView({ user }) {
                 </div>
                 <h3 className="font-semibold text-sm mb-1 truncate">{client.name}</h3>
                 {client.clientCode && (
-                  <Badge variant="outline" className="mb-2 text-xs font-mono">
+                  <Badge variant="outline" className="mb-2 text-xs font-mono bg-blue-50 text-blue-700 border-blue-200">
                     <Hash size={10} className="mr-1" />{client.clientCode}
                   </Badge>
                 )}

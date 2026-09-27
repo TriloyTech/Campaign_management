@@ -10,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Switch } from '@/components/ui/switch';
 import { apiFetch, formatBDT, getStatusColor, getStatusLabel } from '@/lib/api';
 import { toast } from 'sonner';
-import { Plus, Megaphone, Calendar, ChevronLeft, ChevronRight, Search, Pencil, Filter, X, Check, RefreshCw } from 'lucide-react';
+import { Plus, Megaphone, Calendar, ChevronLeft, ChevronRight, Search, Pencil, Filter, X, Check, RefreshCw, Trash2 } from 'lucide-react';
 
 export default function CampaignsView({ user, navigate }) {
   const [campaigns, setCampaigns] = useState([]);
@@ -32,6 +32,7 @@ export default function CampaignsView({ user, navigate }) {
   const [editDialog, setEditDialog] = useState(null);
   const [editForm, setEditForm] = useState({});
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => { 
     loadCampaigns();
@@ -132,6 +133,21 @@ export default function CampaignsView({ user, navigate }) {
       loadCampaigns();
     } catch (err) { toast.error(err.message); }
     finally { setSaving(false); }
+  };
+
+  // Delete campaign
+  const deleteCampaign = async () => {
+    if (!confirm('Are you sure you want to delete this campaign? This will also delete all associated deliverables and line items. This action cannot be undone.')) {
+      return;
+    }
+    setDeleting(true);
+    try {
+      await apiFetch('DELETE', `campaigns/${editForm.id}`);
+      toast.success('Campaign deleted');
+      setEditDialog(null);
+      loadCampaigns();
+    } catch (err) { toast.error(err.message); }
+    finally { setDeleting(false); }
   };
 
   const clearFilters = () => {
@@ -516,6 +532,25 @@ export default function CampaignsView({ user, navigate }) {
                 <Button onClick={saveEdit} disabled={saving} className="flex-1">
                   {saving ? 'Saving...' : 'Save Changes'}
                 </Button>
+              </div>
+
+              {/* Delete Campaign Section */}
+              <div className="pt-4 mt-4 border-t">
+                <div className="flex items-center justify-between p-3 bg-red-50 rounded-lg">
+                  <div>
+                    <p className="text-sm font-medium text-red-800">Delete Campaign</p>
+                    <p className="text-xs text-red-600">This will permanently delete this campaign and all its data</p>
+                  </div>
+                  <Button 
+                    variant="destructive" 
+                    size="sm"
+                    onClick={deleteCampaign}
+                    disabled={deleting}
+                  >
+                    <Trash2 size={14} className="mr-1" />
+                    {deleting ? 'Deleting...' : 'Delete'}
+                  </Button>
+                </div>
               </div>
             </div>
           )}
