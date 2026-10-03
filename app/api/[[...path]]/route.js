@@ -472,15 +472,27 @@ async function handleCampaigns(request, id, method) {
     if (status && status !== 'all') filter.status = status;
     if (clientId) filter.clientId = clientId;
     if (type && type !== 'all') filter.type = type;
+    
     // Month filter - campaigns that overlap with the given month
+    // For Retainer campaigns that are Active, show in current/future months
     if (month) {
       const [year, mon] = month.split('-').map(Number);
       const monthStart = new Date(year, mon - 1, 1);
       const monthEnd = new Date(year, mon, 0);
+      const monthStartStr = monthStart.toISOString().split('T')[0];
+      const monthEndStr = monthEnd.toISOString().split('T')[0];
+      
       filter.$or = [
-        { startDate: { $lte: monthEnd.toISOString().split('T')[0], $gte: monthStart.toISOString().split('T')[0] } },
-        { endDate: { $gte: monthStart.toISOString().split('T')[0], $lte: monthEnd.toISOString().split('T')[0] } },
-        { $and: [{ startDate: { $lte: monthStart.toISOString().split('T')[0] } }, { endDate: { $gte: monthEnd.toISOString().split('T')[0] } }] }
+        // Campaign starts within this month
+        { startDate: { $lte: monthEndStr, $gte: monthStartStr } },
+        // Campaign ends within this month
+        { endDate: { $gte: monthStartStr, $lte: monthEndStr } },
+        // Campaign spans across this month
+        { $and: [{ startDate: { $lte: monthStartStr } }, { endDate: { $gte: monthEndStr } }] },
+        // Campaign has no end date and starts before/during this month
+        { $and: [{ startDate: { $lte: monthEndStr } }, { endDate: { $in: ['', null] } }] },
+        // Retainer + Active campaigns that started before this month (carry forward)
+        { $and: [{ type: 'retainer' }, { status: 'active' }, { startDate: { $lte: monthEndStr } }] }
       ];
     }
     Object.assign(filter, dateFilter);
@@ -702,12 +714,20 @@ async function handleDeliverables(request, id, method) {
       if (data.rate !== undefined) updateData.rate = Number(data.rate);
       if (data.month !== undefined) updateData.month = data.month;
       
-      // Agency assignment fields
+      // In-house assignment with member name
       if (data.assignmentType !== undefined) updateData.assignmentType = data.assignmentType;
+      if (data.assignedToUserId !== undefined) {
+        updateData.assignedToUserId = data.assignedToUserId || null;
+        updateData.assignedToUserName = data.assignedToUserName || null;
+      }
+      
+      // Agency assignment fields
       if (data.agencyId !== undefined) {
         updateData.agencyId = data.agencyId || null;
-        // If assigning to agency, get the agency rate
+        // If assigning to agency, clear in-house assignment
         if (data.agencyId) {
+          updateData.assignedToUserId = null;
+          updateData.assignedToUserName = null;
           // Check if custom rate provided, otherwise use agency's default rate
           if (data.agencyRate !== undefined) {
             updateData.agencyRate = Number(data.agencyRate);
@@ -2030,6 +2050,228 @@ async function handleAgencyDashboard(request, method, user, db, orgId) {
   });
 }
 
+// ============ CLIENT SUMMARY ============
+async function handleClientSummary(request, clientId, method) {
+  const user = await getUserWithOrgs(request);
+  if (!user) return json({ error: 'Unauthorized' }, 401);
+  const db = await getDb();
+  const orgId = getOrgId(user, request);
+  const url = new URL(request.url);
+  const month = url.searchParams.get('month'); // Optional: YYYY-MM
+
+  if (method === 'GET' && !clientId) {
+    // Get all clients summary
+    let filter = {};
+    if (orgId) filter.organizationId = orgId;
+    else if (user.role !== 'super_admin') {
+      const orgIds = user.organizationIds || [user.organizationId];
+      filter.organizationId = { $in: orgIds };
+    }
+
+    const clients = await db.collection('clients').find(filter).toArray();
+    const campaigns = await db.collection('campaigns').find(filter).toArray();
+    const allDeliverables = await db.collection('deliverables').find({ organizationId: filter.organizationId || { $exists: true } }).toArray();
+
+    const clientSummaries = clients.map(client => {
+      const clientCampaigns = campaigns.filter(c => c.clientId === client.id);
+      const campaignIds = clientCampaigns.map(c => c.id);
+      const clientDeliverables = allDeliverables.filter(d => campaignIds.includes(d.campaignId));
+
+      // Content-wise breakdown
+      const contentBreakdown = {};
+      clientDeliverables.forEach(d => {
+        if (!contentBreakdown[d.serviceName]) {
+          contentBreakdown[d.serviceName] = { total: 0, delivered: 0, pending: 0, inProgress: 0, review: 0 };
+        }
+        contentBreakdown[d.serviceName].total++;
+        if (d.status === 'delivered') contentBreakdown[d.serviceName].delivered++;
+        else if (d.status === 'pending') contentBreakdown[d.serviceName].pending++;
+        else if (d.status === 'in_progress') contentBreakdown[d.serviceName].inProgress++;
+        else if (d.status === 'review') contentBreakdown[d.serviceName].review++;
+      });
+
+      const totalProjected = clientCampaigns.reduce((sum, c) => sum + (c.totalProjected || 0), 0);
+      const totalEarned = clientCampaigns.reduce((sum, c) => sum + (c.totalEarned || 0), 0);
+      const totalAgencyCost = clientCampaigns.reduce((sum, c) => sum + (c.totalAgencyCost || 0), 0);
+
+      return {
+        clientId: client.id,
+        clientName: client.name,
+        clientCode: client.clientCode || '',
+        displayName: client.clientCode ? `${client.name} (${client.clientCode})` : client.name,
+        totalCampaigns: clientCampaigns.length,
+        activeCampaigns: clientCampaigns.filter(c => c.status === 'active').length,
+        totalDeliverables: clientDeliverables.length,
+        deliveredCount: clientDeliverables.filter(d => d.status === 'delivered').length,
+        contentBreakdown: Object.entries(contentBreakdown).map(([name, stats]) => ({ serviceName: name, ...stats })),
+        totalProjected,
+        totalEarned,
+        totalAgencyCost,
+        netProfit: totalEarned - totalAgencyCost,
+        completionRate: clientDeliverables.length > 0 ? Math.round((clientDeliverables.filter(d => d.status === 'delivered').length / clientDeliverables.length) * 100) : 0
+      };
+    });
+
+    return json({ clients: clientSummaries });
+  }
+
+  if (method === 'GET' && clientId) {
+    // Get single client detailed summary
+    const client = await db.collection('clients').findOne({ id: clientId });
+    if (!client) return json({ error: 'Client not found' }, 404);
+
+    let campaignFilter = { clientId };
+    if (month) {
+      const [year, mon] = month.split('-').map(Number);
+      const monthStart = new Date(year, mon - 1, 1);
+      const monthEnd = new Date(year, mon, 0);
+      const monthStartStr = monthStart.toISOString().split('T')[0];
+      const monthEndStr = monthEnd.toISOString().split('T')[0];
+      campaignFilter.$or = [
+        { startDate: { $lte: monthEndStr, $gte: monthStartStr } },
+        { endDate: { $gte: monthStartStr, $lte: monthEndStr } },
+        { $and: [{ startDate: { $lte: monthStartStr } }, { endDate: { $gte: monthEndStr } }] },
+        { $and: [{ startDate: { $lte: monthEndStr } }, { endDate: { $in: ['', null] } }] },
+        { $and: [{ type: 'retainer' }, { status: 'active' }, { startDate: { $lte: monthEndStr } }] }
+      ];
+    }
+
+    const campaigns = await db.collection('campaigns').find(campaignFilter).toArray();
+    const campaignIds = campaigns.map(c => c.id);
+    const deliverables = await db.collection('deliverables').find({ campaignId: { $in: campaignIds } }).toArray();
+
+    // Content-wise breakdown
+    const contentBreakdown = {};
+    deliverables.forEach(d => {
+      if (!contentBreakdown[d.serviceName]) {
+        contentBreakdown[d.serviceName] = { total: 0, delivered: 0, pending: 0, inProgress: 0, review: 0, rate: d.rate };
+      }
+      contentBreakdown[d.serviceName].total++;
+      if (d.status === 'delivered') contentBreakdown[d.serviceName].delivered++;
+      else if (d.status === 'pending') contentBreakdown[d.serviceName].pending++;
+      else if (d.status === 'in_progress') contentBreakdown[d.serviceName].inProgress++;
+      else if (d.status === 'review') contentBreakdown[d.serviceName].review++;
+    });
+
+    const totalProjected = campaigns.reduce((sum, c) => sum + (c.totalProjected || 0), 0);
+    const totalEarned = campaigns.reduce((sum, c) => sum + (c.totalEarned || 0), 0);
+    const totalAgencyCost = campaigns.reduce((sum, c) => sum + (c.totalAgencyCost || 0), 0);
+
+    return json({
+      client: {
+        ...client,
+        displayName: client.clientCode ? `${client.name} (${client.clientCode})` : client.name
+      },
+      campaigns: campaigns.map(c => ({
+        id: c.id,
+        name: c.name,
+        type: c.type,
+        status: c.status,
+        totalProjected: c.totalProjected,
+        totalEarned: c.totalEarned,
+        totalAgencyCost: c.totalAgencyCost || 0,
+        startDate: c.startDate,
+        endDate: c.endDate
+      })),
+      contentBreakdown: Object.entries(contentBreakdown).map(([name, stats]) => ({ serviceName: name, ...stats })),
+      summary: {
+        totalCampaigns: campaigns.length,
+        totalDeliverables: deliverables.length,
+        deliveredCount: deliverables.filter(d => d.status === 'delivered').length,
+        totalProjected,
+        totalEarned,
+        totalAgencyCost,
+        netProfit: totalEarned - totalAgencyCost,
+        completionRate: deliverables.length > 0 ? Math.round((deliverables.filter(d => d.status === 'delivered').length / deliverables.length) * 100) : 0
+      }
+    });
+  }
+
+  return json({ error: 'Not found' }, 404);
+}
+
+// ============ MEMBER WORK DASHBOARD ============
+async function handleMemberDashboard(request, userId, method) {
+  const user = await getUserWithOrgs(request);
+  if (!user) return json({ error: 'Unauthorized' }, 401);
+  const db = await getDb();
+  const orgId = getOrgId(user, request);
+
+  // If no userId specified, use current user
+  const targetUserId = userId || user.id;
+  
+  // Team members can only see their own dashboard
+  if (user.role === 'team_member' && targetUserId !== user.id) {
+    return json({ error: 'Not authorized' }, 403);
+  }
+
+  const targetUser = await db.collection('users').findOne({ id: targetUserId });
+  if (!targetUser) return json({ error: 'User not found' }, 404);
+
+  // Get deliverables assigned to this user
+  let filter = { assignedToUserId: targetUserId };
+  if (orgId) filter.organizationId = orgId;
+
+  const deliverables = await db.collection('deliverables').find(filter).sort({ updatedAt: -1 }).toArray();
+  
+  // Get campaign info for each deliverable
+  const campaignIds = [...new Set(deliverables.map(d => d.campaignId))];
+  const campaigns = await db.collection('campaigns').find({ id: { $in: campaignIds } }).toArray();
+  const campaignMap = {};
+  campaigns.forEach(c => { campaignMap[c.id] = c; });
+
+  // Group by status
+  const byStatus = {
+    pending: deliverables.filter(d => d.status === 'pending'),
+    inProgress: deliverables.filter(d => d.status === 'in_progress'),
+    review: deliverables.filter(d => d.status === 'review'),
+    delivered: deliverables.filter(d => d.status === 'delivered')
+  };
+
+  // Group by campaign
+  const byCampaign = {};
+  deliverables.forEach(d => {
+    if (!byCampaign[d.campaignId]) {
+      const campaign = campaignMap[d.campaignId];
+      byCampaign[d.campaignId] = {
+        campaignId: d.campaignId,
+        campaignName: campaign?.name || 'Unknown',
+        clientName: campaign?.clientName || 'Unknown',
+        items: []
+      };
+    }
+    byCampaign[d.campaignId].items.push({
+      id: d.id,
+      serviceName: d.serviceName,
+      unitIndex: d.unitIndex,
+      status: d.status,
+      rate: d.rate,
+      month: d.month,
+      proofUrl: d.proofUrl,
+      updatedAt: d.updatedAt
+    });
+  });
+
+  return json({
+    user: {
+      id: targetUser.id,
+      name: targetUser.name,
+      email: targetUser.email,
+      role: targetUser.role,
+      designation: targetUser.designation
+    },
+    summary: {
+      total: deliverables.length,
+      pending: byStatus.pending.length,
+      inProgress: byStatus.inProgress.length,
+      review: byStatus.review.length,
+      delivered: byStatus.delivered.length
+    },
+    byStatus,
+    byCampaign: Object.values(byCampaign)
+  });
+}
+
 // ============ MAIN HANDLERS ============
 async function handleRequest(request, pathSegments, method) {
   const [resource, id, subResource] = pathSegments;
@@ -2038,6 +2280,8 @@ async function handleRequest(request, pathSegments, method) {
       case 'auth': return await handleAuth(request, id, method);
       case 'organizations': return await handleOrganizations(request, id, method);
       case 'clients': return await handleClients(request, id, method);
+      case 'client-summary': return await handleClientSummary(request, id, method);
+      case 'member-dashboard': return await handleMemberDashboard(request, id, method);
       case 'services': return await handleServices(request, id, method);
       case 'campaigns': 
         if (subResource === 'renew') return await handleCampaignRenewal(request, id, method);

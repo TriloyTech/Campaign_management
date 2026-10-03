@@ -39,7 +39,8 @@ export default function CampaignDetail({ campaignId, user, navigate }) {
   
   // Agency Assignment Dialog
   const [assignAgencyDialog, setAssignAgencyDialog] = useState(null);
-  const [assignmentForm, setAssignmentForm] = useState({ type: 'in_house', agencyId: '', agencyRate: '' });
+  const [assignmentForm, setAssignmentForm] = useState({ type: 'in_house', agencyId: '', agencyRate: '', assignedToUserId: '', assignedToUserName: '' });
+  const [teamMembers, setTeamMembers] = useState([]);
   
   // Edit Campaign Dialog
   const [editCampaignDialog, setEditCampaignDialog] = useState(false);
@@ -52,6 +53,7 @@ export default function CampaignDetail({ campaignId, user, navigate }) {
     loadServices();
     loadClients();
     loadAgencies();
+    loadTeamMembers();
   }, [campaignId]);
 
   const loadCampaign = async () => {
@@ -94,6 +96,13 @@ export default function CampaignDetail({ campaignId, user, navigate }) {
     } catch (err) { console.error(err); }
   };
 
+  const loadTeamMembers = async () => {
+    try {
+      const res = await apiFetch('GET', 'team');
+      setTeamMembers(res.members || []);
+    } catch (err) { console.error(err); }
+  };
+
   const updateStatus = async (deliverable, newStatus) => {
     try {
       await apiFetch('PUT', `deliverables/${deliverable.id}`, { status: newStatus });
@@ -106,9 +115,11 @@ export default function CampaignDetail({ campaignId, user, navigate }) {
   const openAssignAgency = (deliverable) => {
     setAssignAgencyDialog(deliverable);
     setAssignmentForm({
-      type: deliverable.agencyId ? 'outsourced' : 'in_house',
+      type: deliverable.agencyId ? 'outsourced' : (deliverable.assignmentType || 'in_house'),
       agencyId: deliverable.agencyId || '',
-      agencyRate: deliverable.agencyRate || ''
+      agencyRate: deliverable.agencyRate || '',
+      assignedToUserId: deliverable.assignedToUserId || '',
+      assignedToUserName: deliverable.assignedToUserName || ''
     });
   };
 
@@ -118,11 +129,14 @@ export default function CampaignDetail({ campaignId, user, navigate }) {
       const payload = {
         assignmentType: assignmentForm.type,
         agencyId: assignmentForm.type === 'outsourced' ? assignmentForm.agencyId : null,
-        agencyRate: assignmentForm.type === 'outsourced' && assignmentForm.agencyRate ? Number(assignmentForm.agencyRate) : null
+        agencyRate: assignmentForm.type === 'outsourced' && assignmentForm.agencyRate ? Number(assignmentForm.agencyRate) : null,
+        assignedToUserId: assignmentForm.type === 'in_house' ? assignmentForm.assignedToUserId : null,
+        assignedToUserName: assignmentForm.type === 'in_house' ? assignmentForm.assignedToUserName : null
       };
       await apiFetch('PUT', `deliverables/${assignAgencyDialog.id}`, payload);
-      toast.success(assignmentForm.type === 'outsourced' ? 'Assigned to agency' : 'Marked as in-house');
+      toast.success(assignmentForm.type === 'outsourced' ? 'Assigned to agency' : assignmentForm.assignedToUserName ? `Assigned to ${assignmentForm.assignedToUserName}` : 'Marked as in-house');
       setAssignAgencyDialog(null);
+      setAssignmentForm({ type: 'in_house', agencyId: '', agencyRate: '', assignedToUserId: '', assignedToUserName: '' });
       loadCampaign();
     } catch (err) { toast.error(err.message); }
   };
@@ -141,6 +155,16 @@ export default function CampaignDetail({ campaignId, user, navigate }) {
       ...assignmentForm,
       agencyId,
       agencyRate: defaultRate || assignmentForm.agencyRate
+    });
+  };
+
+  // When team member changes
+  const handleTeamMemberChange = (memberId) => {
+    const member = teamMembers.find(m => m.id === memberId);
+    setAssignmentForm({
+      ...assignmentForm,
+      assignedToUserId: memberId,
+      assignedToUserName: member?.name || ''
     });
   };
 
@@ -634,7 +658,7 @@ export default function CampaignDetail({ campaignId, user, navigate }) {
                                 </Badge>
                               ) : isInHouse ? (
                                 <Badge variant="outline" className="text-xs text-emerald-600 border-emerald-200 flex items-center gap-1">
-                                  <Home size={10} /> In-House
+                                  <Home size={10} /> {d.assignedToUserName || 'In-House'}
                                 </Badge>
                               ) : (
                                 <Badge variant="outline" className="text-xs text-gray-400 border-gray-200 flex items-center gap-1">
@@ -787,16 +811,28 @@ export default function CampaignDetail({ campaignId, user, navigate }) {
               )}
 
               {assignmentForm.type === 'in_house' && (
-                <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200">
-                  <p className="text-sm text-emerald-700">
-                    <CheckCircle size={14} className="inline mr-1" />
-                    No external cost will be recorded for this deliverable.
-                  </p>
+                <div className="space-y-3">
+                  <div>
+                    <Label>Assign to Team Member</Label>
+                    <Select value={assignmentForm.assignedToUserId} onValueChange={handleTeamMemberChange}>
+                      <SelectTrigger><SelectValue placeholder="Select team member (optional)" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="">Unassigned</SelectItem>
+                        {teamMembers.map(m => <SelectItem key={m.id} value={m.id}>{m.name} {m.designation ? `(${m.designation})` : ''}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="p-3 bg-emerald-50 rounded-lg border border-emerald-200">
+                    <p className="text-sm text-emerald-700">
+                      <CheckCircle size={14} className="inline mr-1" />
+                      No external cost will be recorded for this deliverable.
+                    </p>
+                  </div>
                 </div>
               )}
 
               <Button onClick={saveAgencyAssignment} className="w-full">
-                {assignmentForm.type === 'outsourced' ? 'Assign to Agency' : 'Mark as In-House'}
+                {assignmentForm.type === 'outsourced' ? 'Assign to Agency' : assignmentForm.assignedToUserName ? `Assign to ${assignmentForm.assignedToUserName}` : 'Mark as In-House'}
               </Button>
             </div>
           )}

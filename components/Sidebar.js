@@ -1,5 +1,5 @@
 'use client';
-import { LayoutDashboard, Users, Megaphone, Package, UserPlus, ChevronLeft, ChevronRight, LogOut, Briefcase, ScrollText, Building, UserCircle, FileText, X, Building2 } from 'lucide-react';
+import { LayoutDashboard, Users, Megaphone, Package, UserPlus, ChevronLeft, ChevronRight, LogOut, Briefcase, ScrollText, Building, UserCircle, FileText, X, Building2, PieChart, ClipboardList } from 'lucide-react';
 import { Separator } from '@/components/ui/separator';
 
 export default function Sidebar({ user, collapsed, toggle, navigate, currentView, onLogout, isMobile }) {
@@ -10,6 +10,7 @@ export default function Sidebar({ user, collapsed, toggle, navigate, currentView
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'organizations', label: 'Organizations', icon: Building },
     { id: 'clients', label: 'Clients', icon: Users },
+    { id: 'client-summary', label: 'Client Summary', icon: PieChart },
     { id: 'campaigns', label: 'Campaigns', icon: Megaphone },
     { id: 'services', label: 'Services', icon: Package },
     { id: 'agencies', label: 'Agencies', icon: Building2 },
@@ -21,6 +22,7 @@ export default function Sidebar({ user, collapsed, toggle, navigate, currentView
   const adminNav = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'clients', label: 'Clients', icon: Users },
+    { id: 'client-summary', label: 'Client Summary', icon: PieChart },
     { id: 'campaigns', label: 'Campaigns', icon: Megaphone },
     { id: 'services', label: 'Services', icon: Package },
     { id: 'agencies', label: 'Agencies', icon: Building2 },
@@ -31,7 +33,7 @@ export default function Sidebar({ user, collapsed, toggle, navigate, currentView
 
   const teamNav = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'clients', label: 'Clients', icon: Users },
+    { id: 'my-work', label: 'My Work', icon: ClipboardList },
     { id: 'campaigns', label: 'My Campaigns', icon: Briefcase },
     { id: 'services', label: 'Services', icon: Package },
   ];

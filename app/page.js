@@ -5,6 +5,8 @@ import Sidebar from '@/components/Sidebar';
 import AuthViews from '@/components/AuthViews';
 import DashboardView from '@/components/DashboardView';
 import ClientsView from '@/components/ClientsView';
+import ClientSummaryView from '@/components/ClientSummaryView';
+import MemberDashboardView from '@/components/MemberDashboardView';
 import ServicesView from '@/components/ServicesView';
 import CampaignsView from '@/components/CampaignsView';
 import CampaignCreate from '@/components/CampaignCreate';
@@ -176,6 +178,8 @@ export default function App() {
       case 'audit-log': return <AuditLogView key={viewKey} user={user} />;
       case 'profile': return <ProfileView key={viewKey} user={user} onUserUpdate={handleUserUpdate} />;
       case 'reports': return <ReportsView key={viewKey} user={user} />;
+      case 'client-summary': return <ClientSummaryView key={viewKey} user={user} navigate={navigate} />;
+      case 'my-work': return <MemberDashboardView key={viewKey} user={user} navigate={navigate} />;
       default: return <DashboardView key={viewKey} user={user} navigate={navigate} />;
     }
   };
