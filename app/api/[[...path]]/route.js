@@ -2195,7 +2195,6 @@ async function handleMemberDashboard(request, userId, method) {
   const user = await getUserWithOrgs(request);
   if (!user) return json({ error: 'Unauthorized' }, 401);
   const db = await getDb();
-  const orgId = getOrgId(user, request);
 
   // If no userId specified, use current user
   const targetUserId = userId || user.id;
@@ -2208,9 +2207,8 @@ async function handleMemberDashboard(request, userId, method) {
   const targetUser = await db.collection('users').findOne({ id: targetUserId });
   if (!targetUser) return json({ error: 'User not found' }, 404);
 
-  // Get deliverables assigned to this user
-  let filter = { assignedToUserId: targetUserId };
-  if (orgId) filter.organizationId = orgId;
+  // Get deliverables assigned to this user - no org filter needed since we're querying by specific user
+  const filter = { assignedToUserId: targetUserId };
 
   const deliverables = await db.collection('deliverables').find(filter).sort({ updatedAt: -1 }).toArray();
   

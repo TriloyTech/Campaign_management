@@ -814,10 +814,10 @@ export default function CampaignDetail({ campaignId, user, navigate }) {
                 <div className="space-y-3">
                   <div>
                     <Label>Assign to Team Member</Label>
-                    <Select value={assignmentForm.assignedToUserId} onValueChange={handleTeamMemberChange}>
+                    <Select value={assignmentForm.assignedToUserId || 'none'} onValueChange={(v) => handleTeamMemberChange(v === 'none' ? '' : v)}>
                       <SelectTrigger><SelectValue placeholder="Select team member (optional)" /></SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">Unassigned</SelectItem>
+                        <SelectItem value="none">-- Unassigned --</SelectItem>
                         {teamMembers.map(m => <SelectItem key={m.id} value={m.id}>{m.name} {m.designation ? `(${m.designation})` : ''}</SelectItem>)}
                       </SelectContent>
                     </Select>
